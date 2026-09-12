@@ -130,7 +130,7 @@ If a stored list-selection model id is not in the fetched list, it is kept and s
 
 ### Custom model (OpenAI-Compatible API and 9Router)
 
-The **OpenAI-Compatible API** and **9Router** config cards keep the normal model dropdown (when a list is available) and adds a **Custom model** checkbox below it. When checked, a free-text field appears for a model id the server accepts even if `/models` never returns it (e.g. a free tier omitted from the list). List selection and custom id are stored separately; chat uses the custom id only while the checkbox is on. Toggling the checkbox off restores the list selection without losing the typed id.
+The **OpenAI-Compatible API** and **9Router** config cards keep the normal model dropdown (when a list is available) and add a **Custom model** checkbox below it. When checked, a free-text field appears for a model id the server accepts even if `/models` never returns it (e.g. a free tier omitted from the list). List selection and custom id are stored separately; chat uses the custom id only while the checkbox is on. Toggling the checkbox off restores the list selection without losing the typed id.
 
 ### Model Cards
 
