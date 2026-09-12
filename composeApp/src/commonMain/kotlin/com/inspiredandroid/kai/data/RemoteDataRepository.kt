@@ -430,7 +430,6 @@ class RemoteDataRepository(
 
                 val activeProviders = cfg.connections.filter { it.enabled && it.apiKey.isNotBlank() }.map { it.provider }.distinct()
                 for (providerId in activeProviders) {
-                    if (!pCreds.enabled || pCreds.apiKey.isBlank()) continue
                     val meta = NineRouterRegistry.find(providerId) ?: continue
                     when (meta.id) {
                         "cloudflare-ai" -> {
@@ -895,7 +894,7 @@ class RemoteDataRepository(
         if (service.isOnDevice) return true
         if (service == Service.NineRouter) {
             val cfg = appSettings.getNineRouterConfig()
-            if (cfg.providers.values.any { it.enabled && it.apiKey.isNotBlank() }) return true
+            if (cfg.connections.any { it.enabled && it.apiKey.isNotBlank() }) return true
             return appSettings.getInstanceApiKey(instanceId).isNotBlank() || appSettings.getInstanceBaseUrl(instanceId).isNotBlank()
         }
         if (!service.requiresApiKey && !service.supportsOptionalApiKey) return true

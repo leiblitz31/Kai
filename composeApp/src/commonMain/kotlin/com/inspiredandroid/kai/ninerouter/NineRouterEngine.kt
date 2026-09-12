@@ -7,6 +7,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
+import kotlin.time.Clock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -64,7 +65,7 @@ object NineRouterEngine {
             NineRouterRegistry.find(providerKey) ?: NineRouterRegistry.find(providerKey.lowercase())
         } else null
 
-        val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        val now = Clock.System.now().toEpochMilliseconds()
 
         val matching = if (meta != null) {
             config.connections.filter { conn ->
@@ -76,14 +77,15 @@ object NineRouterEngine {
         }
 
         if (matching.isNotEmpty()) {
-            val available = matching.filter { conn ->
-                val lockModel = conn.modelLocks[modelPart] ?: 0L
-                val lockAll = conn.modelLocks["__all"] ?: 0L
+            val available = matching.filter { conn: NineConnection ->
+                val lockModel: Long = conn.modelLocks[modelPart] ?: 0L
+                val lockAll: Long = conn.modelLocks["__all"] ?: 0L
                 lockModel <= now && lockAll <= now
-            }.sortedWith(compareBy({ it.priority }, { it.lastUsedAt }))
+            }.sortedWith(compareBy<NineConnection> { it.priority }.thenBy { it.lastUsedAt })
 
-            val candidatesPool = if (available.isNotEmpty()) available else matching.sortedBy {
-                it.modelLocks[modelPart] ?: it.modelLocks["__all"] ?: 0L
+            val candidatesPool = if (available.isNotEmpty()) available else matching.sortedBy { conn: NineConnection ->
+                val lockTime: Long = conn.modelLocks[modelPart] ?: conn.modelLocks["__all"] ?: 0L
+                lockTime
             }
 
             val upstreamModel = if (meta?.id == "cloudflare-ai") {
@@ -121,7 +123,6 @@ object NineRouterEngine {
             }
         }
 
-        // Fallback target
         return listOf(
             NineRouterCandidate(
                 connectionId = null,

@@ -1,6 +1,7 @@
 package com.inspiredandroid.kai.ninerouter
 
 import com.inspiredandroid.kai.data.AppSettings
+import kotlin.time.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -10,13 +11,13 @@ data class NineConnection(
     val id: String,
     val provider: String,
     val name: String = "",
-    val apiKey: *** = "",
+    val apiKey: String = "",
     val accountId: String = "",
     val priority: Int = 1,
     val enabled: Boolean = true,
     val consecutiveUseCount: Int = 0,
     val lastUsedAt: Long = 0L,
-    val modelLocks: Map<String, Long> = emptyMap(), // model -> expiry timestamp millis
+    val modelLocks: Map<String, Long> = emptyMap(),
 )
 
 @Serializable
@@ -64,7 +65,7 @@ fun AppSettings.removeNineConnection(connectionId: String) {
 
 fun AppSettings.lockNineConnectionModel(connectionId: String, model: String, cooldownMs: Long) {
     val cur = getNineRouterConfig()
-    val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+    val now = Clock.System.now().toEpochMilliseconds()
     val expiry = now + cooldownMs
     val updated = cur.connections.map { conn ->
         if (conn.id == connectionId) {
@@ -87,12 +88,8 @@ fun AppSettings.importNineConnectionsBulk(text: String): Int {
         val trimmed = line.trim()
         if (trimmed.isBlank() || trimmed.startsWith("#")) continue
         val parts = trimmed.split("|").map { it.trim() }
-        val id = "conn_" + kotlinx.datetime.Clock.System.now().toEpochMilliseconds() + "_" + count
-        
-        // Formats supported:
-        // 1) provider|name|apiKey
-        // 2) provider|name|accountId|apiKey
-        // 3) name|email|apiUrl|apiKey (harvest format)
+        val id = "conn_" + Clock.System.now().toEpochMilliseconds() + "_" + count
+
         if (parts.size >= 4 && parts[2].contains("accounts/")) {
             val name = parts[0]
             val apiUrl = parts[2]
