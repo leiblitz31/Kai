@@ -151,6 +151,7 @@ import org.jetbrains.compose.resources.vectorResource
 import sh.calvin.reorderable.ReorderableColumn
 import com.inspiredandroid.kai.data.AppSettings
 import com.inspiredandroid.kai.ninerouter.NineRouterRegistry
+import com.inspiredandroid.kai.ninerouter.NineProviderCredentials
 import com.inspiredandroid.kai.ninerouter.getNineRouterConfig
 import com.inspiredandroid.kai.ninerouter.setNineProviderCredentials
 import com.inspiredandroid.kai.ninerouter.removeNineProvider
@@ -353,23 +354,18 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                         }
                     }
                 }
-                var pickerExpanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
                 var selectedId by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
                 var apiKeyDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
                 var accountIdDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
-                val allIds = androidx.compose.runtime.remember { NineRouterRegistry.all.map { it.id }.sorted() }
-                androidx.compose.material3.ExposedDropdownMenuBox(expanded = pickerExpanded, onExpandedChange = { pickerExpanded = !pickerExpanded }) {
-                    androidx.compose.material3.OutlinedTextField(value = selectedId ?: "", onValueChange = {}, readOnly = true, label = { androidx.compose.material3.Text("Provider ID") }, trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(expanded = pickerExpanded) }, modifier = androidx.compose.ui.Modifier.menuAnchor().fillMaxWidth())
-                    androidx.compose.material3.ExposedDropdownMenu(expanded = pickerExpanded, onDismissRequest = { pickerExpanded = false }) {
-                        allIds.take(80).forEach { pid ->
-                            androidx.compose.material3.DropdownMenuItem(text = { androidx.compose.material3.Text(pid) }, onClick = {
-                                selectedId = pid
-                                val existing = ninerouterConfigState.providers[pid]
-                                apiKeyDraft = existing?.apiKey ?: ""
-                                accountIdDraft = existing?.accountId ?: ""
-                                pickerExpanded = false
-                            })
-                        }
+                androidx.compose.material3.OutlinedTextField(value = selectedId ?: "", onValueChange = { selectedId = it }, label = { androidx.compose.material3.Text("Provider ID (mis: cloudflare-ai, openai, deepseek)") }, modifier = androidx.compose.ui.Modifier.fillMaxWidth(), singleLine = true)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp), modifier = androidx.compose.ui.Modifier.fillMaxWidth()) {
+                    listOf("cloudflare-ai","openai","deepseek","anthropic","gemini","kimi","glm","qwen","groq","openrouter","minimax","mistral").forEach { pid ->
+                        androidx.compose.material3.AssistChip(onClick = {
+                            selectedId = pid
+                            val existing = ninerouterConfigState.providers[pid]
+                            apiKeyDraft = existing?.apiKey ?: ""
+                            accountIdDraft = existing?.accountId ?: ""
+                        }, label = { androidx.compose.material3.Text(pid) })
                     }
                 }
                 androidx.compose.material3.OutlinedTextField(value = apiKeyDraft, onValueChange = { apiKeyDraft = it }, label = { androidx.compose.material3.Text("API Key / Token") }, modifier = androidx.compose.ui.Modifier.fillMaxWidth(), singleLine = true)
