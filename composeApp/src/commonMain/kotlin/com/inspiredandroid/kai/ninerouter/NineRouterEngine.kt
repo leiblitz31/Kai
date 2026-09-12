@@ -55,7 +55,7 @@ object NineRouterEngine {
             else -> return Result.failure(IllegalStateException("No validate URL for ${meta.id}"))
         }
         return try {
-            val resp = httpClient.get(url) {
+            val resp = httpClient().get(url) {
                 val auth = resolveAuthHeader(meta, creds)
                 if (auth != null) {
                     if (auth.first == "Authorization") bearerAuth(auth.second.removePrefix("Bearer ").trim())
@@ -82,7 +82,7 @@ object NineRouterEngine {
             else -> return Result.success(emptyList())
         }
         return try {
-            val resp = httpClient.get(validateUrl) {
+            val resp = httpClient().get(validateUrl) {
                 val auth = resolveAuthHeader(meta, creds)
                 if (auth != null) {
                     if (auth.first == "Authorization") bearerAuth(auth.second.removePrefix("Bearer ").trim())
@@ -126,7 +126,7 @@ object NineRouterEngine {
             val url = base
             val resp = if (isClaude) {
                 // Claude messages format — simplified (no tools)
-                httpClient.post(url) {
+                httpClient().post(url) {
                     contentType(ContentType.Application.Json)
                     val auth = resolveAuthHeader(meta, creds) ?: return Result.failure(IllegalStateException("Missing API key for ${meta.id}"))
                     header(auth.first, auth.second)
@@ -138,7 +138,7 @@ object NineRouterEngine {
                     ))
                 }
             } else {
-                httpClient.post(url) {
+                httpClient().post(url) {
                     contentType(ContentType.Application.Json)
                     val auth = resolveAuthHeader(meta, creds)
                     if (auth != null) {

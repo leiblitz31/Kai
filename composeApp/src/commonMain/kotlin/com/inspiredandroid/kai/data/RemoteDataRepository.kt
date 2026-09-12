@@ -95,9 +95,6 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.ExperimentalTime
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
-import com.inspiredandroid.kai.ninerouter.NineRouterEngine
-import com.inspiredandroid.kai.ninerouter.NineRouterRegistry
-import com.inspiredandroid.kai.ninerouter.getNineRouterConfig
 
 private const val MAX_TOOL_ITERATIONS = 15
 private const val MIN_TOOL_DISPLAY_MS = 2000L
@@ -403,12 +400,6 @@ class RemoteDataRepository(
                 fetchInstanceModels(service, instanceId)
             }
 
-            Service.NineRouter -> {
-                val cfg = appSettings.getNineRouterConfig()
-                if (cfg.providers.isEmpty()) throw OpenAICompatibleGenericException("NineRouter: belum ada provider — tambah API Key di Settings > Services > 9Router Standalone")
-                fetchInstanceModels(service, instanceId)
-            }
-
             else -> fetchInstanceModels(service, instanceId)
         }
     }
@@ -424,27 +415,6 @@ class RemoteDataRepository(
             }
 
             Service.Free -> { /* No model listing */ }
-
-            Service.NineRouter -> {
-                val cfg = appSettings.getNineRouterConfig()
-                val enabledIds = cfg.providers.filterValues { it.enabled && it.apiKey.isNotBlank() }.keys
-                val registryModels = NineRouterRegistry.all.filter { it.id in enabledIds || it.alias in enabledIds }
-                // If no provider configured, show all 142 as placeholder (not selectable until key added)
-                val source = if (registryModels.isNotEmpty()) registryModels else NineRouterRegistry.all.take(20)
-                val selectedModelId = appSettings.getInstanceModelId(instanceId)
-                val models = source.flatMap { meta ->
-                    // Prefer validateUrl models if available? For MVP, expose alias/model hint
-                    listOf(SettingsModel(id = meta.alias + "/" + (meta.alias), subtitle = meta.alias, isSelected = (meta.alias == selectedModelId)))
-                }.distinctBy { it.id }
-                // Also include any hard-coded upstream models per registry (first model per provider) for picker
-                val detailed = mutableListOf<SettingsModel>()
-                for (meta in source) {
-                    detailed.add(SettingsModel(id = meta.alias + "/auto", subtitle = meta.alias, isSelected = (meta.alias + "/auto" == selectedModelId)))
-                }
-                // Fallback: at least show enabled providers
-                val finalModels = if (detailed.isEmpty()) source.map { SettingsModel(id = it.alias, subtitle = it.alias, isSelected = it.id == selectedModelId) } else detailed
-                updateModelsForInstance(instanceId, finalModels, service)
-            }
 
             Service.LiteRT -> {
                 val engine = localInferenceEngine ?: return
@@ -742,10 +712,6 @@ class RemoteDataRepository(
             return plainChat(service, creds, messages, systemPrompt, strictEmptyResponse = true)
         }
 
-        // NineRouter standalone — direct upstream without Mido
-        if (service == Service.NineRouter) {
-            return handleNineRouterChatWithTools(creds, messages, tools, systemPrompt, history)
-        }
         return when (service) {
             Service.Gemini -> handleGeminiChatWithTools(creds, messages, tools, systemPrompt, history)
             Service.Anthropic -> handleAnthropicChatWithTools(creds, messages, tools, systemPrompt, history)
@@ -808,11 +774,6 @@ class RemoteDataRepository(
                 AssistantTurn(response.extractText())
             }
 
-            Service.NineRouter -> {
-                val result = handleNineRouterPlainChat(credentials, messages, systemPrompt, requestTimeoutMs, retry, strictEmptyResponse)
-                return result
-            }
-
             else -> {
                 // No tools on this request — strip any historic tool_calls so Groq's strict
                 // validator doesn't see calls to tools we no longer declare.
@@ -841,10 +802,6 @@ class RemoteDataRepository(
     private fun hasValidInstanceApiKey(instanceId: String, service: Service): Boolean {
         if (service == Service.Free) return true
         if (service.isOnDevice) return true
-        if (service == Service.NineRouter) {
-            val cfg = appSettings.getNineRouterConfig()
-            return cfg.providers.values.any { it.enabled && it.apiKey.isNotBlank() }
-        }
         if (!service.requiresApiKey && !service.supportsOptionalApiKey) return true
         if (service.requiresApiKey) return appSettings.getInstanceApiKey(instanceId).isNotBlank()
         return true // Optional API key services are always valid
