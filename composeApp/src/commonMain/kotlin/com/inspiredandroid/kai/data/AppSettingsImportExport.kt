@@ -200,7 +200,7 @@ fun AppSettings.importFromJson(
                 obj["base_url"]?.jsonPrimitive?.content?.let { baseUrl ->
                     val service = importedInstances.find { it.instanceId == instanceId }
                         ?.let { Service.fromId(it.serviceId) }
-                    if (service == Service.OpenAICompatible && baseUrl.isNotBlank()) {
+                    if ((service == Service.OpenAICompatible || service == Service.NineRouter) && baseUrl.isNotBlank()) {
                         setInstanceBaseUrl(instanceId, ensureBaseUrlHasVersionPath(baseUrl))
                     } else {
                         setInstanceBaseUrl(instanceId, baseUrl)

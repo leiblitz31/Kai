@@ -19,6 +19,7 @@ import kai.composeapp.generated.resources.ic_service_longcat
 import kai.composeapp.generated.resources.ic_service_minimax
 import kai.composeapp.generated.resources.ic_service_mistral
 import kai.composeapp.generated.resources.ic_service_moonshot
+import kai.composeapp.generated.resources.ic_service_ninerouter
 import kai.composeapp.generated.resources.ic_service_nvidia
 import kai.composeapp.generated.resources.ic_service_ollamacloud
 import kai.composeapp.generated.resources.ic_service_openai
@@ -527,6 +528,21 @@ sealed class Service(
         sortModelsById = true,
     )
 
+    data object NineRouter : Service(
+        id = "ninerouter",
+        displayName = "9Router",
+        icon = Res.drawable.ic_service_ninerouter,
+        requiresApiKey = false,
+        supportsOptionalApiKey = true,
+        defaultModel = null,
+        settingsKeyPrefix = "ninerouter",
+        chatUrl = "/chat/completions",
+        modelsUrl = "/models",
+        sortModelsById = true,
+        apiKeyUrl = "https://github.com/decolua/9router",
+        apiKeyUrlDisplay = "github.com/decolua/9router",
+    )
+
     data object LiteRT : Service(
         id = "litert",
         displayName = "Local Model",
@@ -538,9 +554,10 @@ sealed class Service(
     )
 
     companion object {
-        val all: List<Service> get() = listOf(Free, AtlasCloud, Gemini, Anthropic, OpenAI, DeepSeek, Mistral, XAI, OpenRouter, Groq, Nvidia, Cerebras, OllamaCloud, LongCat, Together, HuggingFace, Venice, Moonshot, Zai, ZaiCodingPlan, Minimax, AiHubMix, DeepInfra, FireworksAI, OpenCode, PublicAI, AIHorde, Perplexity, OpenAICompatible, LiteRT)
+        val all: List<Service> get() = listOf(Free, AtlasCloud, Gemini, Anthropic, OpenAI, DeepSeek, Mistral, XAI, OpenRouter, Groq, Nvidia, Cerebras, OllamaCloud, LongCat, Together, HuggingFace, Venice, Moonshot, Zai, ZaiCodingPlan, Minimax, AiHubMix, DeepInfra, FireworksAI, OpenCode, PublicAI, AIHorde, Perplexity, OpenAICompatible, NineRouter, LiteRT)
 
         const val DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "http://localhost:11434/v1"
+        const val DEFAULT_NINEROUTER_BASE_URL = "http://localhost:20128/v1"
 
         fun fromId(id: String): Service = all.find { it.id == id } ?: Free
     }

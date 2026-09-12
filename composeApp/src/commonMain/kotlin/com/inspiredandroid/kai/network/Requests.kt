@@ -460,8 +460,9 @@ class Requests {
 
     // region Helpers
 
-    private fun resolveUrl(service: Service, credentials: ServiceCredentials, path: String): String = if (service == Service.OpenAICompatible) {
-        "${credentials.baseUrl.ifEmpty { Service.DEFAULT_OPENAI_COMPATIBLE_BASE_URL }.trimEnd('/')}$path"
+    private fun resolveUrl(service: Service, credentials: ServiceCredentials, path: String): String = if (service == Service.OpenAICompatible || service == Service.NineRouter) {
+        val defaultBase = if (service == Service.NineRouter) Service.DEFAULT_NINEROUTER_BASE_URL else Service.DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+        "${credentials.baseUrl.ifEmpty { defaultBase }.trimEnd('/')}$path"
     } else {
         path
     }

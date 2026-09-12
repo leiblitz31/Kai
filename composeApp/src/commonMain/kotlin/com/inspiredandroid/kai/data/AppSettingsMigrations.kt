@@ -100,7 +100,7 @@ fun AppSettings.migrateInstanceSettingsIfNeeded() {
         if (legacyModel.isNotBlank() && getInstanceModelId(instance.instanceId).isBlank()) {
             setInstanceModelId(instance.instanceId, legacyModel)
         }
-        if (service == Service.OpenAICompatible) {
+        if (service == Service.OpenAICompatible || service == Service.NineRouter) {
             val legacyBaseUrl = getBaseUrl(service)
             if (legacyBaseUrl.isNotBlank() && getInstanceBaseUrl(instance.instanceId).isBlank()) {
                 setInstanceBaseUrl(instance.instanceId, legacyBaseUrl)
@@ -122,7 +122,7 @@ fun AppSettings.migrateBaseUrlsToV1PathIfNeeded() {
     val instances = getConfiguredServiceInstances()
     for (instance in instances) {
         val service = Service.fromId(instance.serviceId)
-        if (service != Service.OpenAICompatible) continue
+        if (service != Service.OpenAICompatible && service != Service.NineRouter) continue
         val baseUrl = getInstanceBaseUrl(instance.instanceId)
         if (baseUrl.isNotBlank()) {
             setInstanceBaseUrl(instance.instanceId, ensureBaseUrlHasVersionPath(baseUrl))
@@ -156,7 +156,7 @@ fun AppSettings.migrateCustomModelSettingsIfNeeded() {
 
     val instances = getConfiguredServiceInstances()
     for (instance in instances) {
-        if (Service.fromId(instance.serviceId) != Service.OpenAICompatible) continue
+        if (Service.fromId(instance.serviceId) != Service.OpenAICompatible && Service.fromId(instance.serviceId) != Service.NineRouter) continue
         val listModelId = getInstanceModelId(instance.instanceId)
         if (listModelId.isNotBlank() && getInstanceCustomModelId(instance.instanceId).isBlank()) {
             setInstanceCustomModelId(instance.instanceId, listModelId)

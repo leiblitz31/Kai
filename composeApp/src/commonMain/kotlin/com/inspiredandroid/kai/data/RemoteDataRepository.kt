@@ -306,7 +306,13 @@ class RemoteDataRepository(
 
     override fun getInstanceBaseUrl(instanceId: String, service: Service): String {
         val url = appSettings.getInstanceBaseUrl(instanceId)
-        return url.ifBlank { if (service is Service.OpenAICompatible) Service.DEFAULT_OPENAI_COMPATIBLE_BASE_URL else "" }
+        return url.ifBlank {
+            when (service) {
+                is Service.OpenAICompatible -> Service.DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+                is Service.NineRouter -> Service.DEFAULT_NINEROUTER_BASE_URL
+                else -> ""
+            }
+        }
     }
 
     override fun updateInstanceBaseUrl(instanceId: String, baseUrl: String) {

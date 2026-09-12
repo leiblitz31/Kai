@@ -339,7 +339,7 @@ class SettingsViewModel(
             .sortedWith(
                 compareBy<Service> {
                     when {
-                        it is Service.OpenAICompatible || it.isOnDevice -> 0
+                        it is Service.OpenAICompatible || it is Service.NineRouter || it.isOnDevice -> 0
                         it is Service.AtlasCloud -> 1
                         else -> 2
                     }

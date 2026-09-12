@@ -1,8 +1,8 @@
 # Multi-Service
 
-**Last verified:** 2026-09-07
+**Last verified:** 2026-09-12
 
-Kai supports 29 LLM providers (plus a built-in Free tier). Each provider uses one of three API formats: **OpenAI-compatible** (most services), **Gemini native**, or **Anthropic native** -- plus **LiteRT on-device** for local inference. A handful of OpenAI models additionally require OpenAI's **Responses API**; Kai switches to it per model, transparently. Users can configure multiple service instances, reorder them, and Kai automatically falls back through the chain on failure.
+Kai supports 30 LLM providers (plus a built-in Free tier). Each provider uses one of three API formats: **OpenAI-compatible** (most services), **Gemini native**, or **Anthropic native** -- plus **LiteRT on-device** for local inference. A handful of OpenAI models additionally require OpenAI's **Responses API**; Kai switches to it per model, transparently. Users can configure multiple service instances, reorder them, and Kai automatically falls back through the chain on failure.
 
 ## Concepts
 
@@ -21,7 +21,7 @@ A configured connection to a service. Users can add multiple instances of the sa
 
 - API key
 - Selected model
-- Base URL (relevant for the OpenAI-Compatible API service)
+- Base URL (relevant for the OpenAI-Compatible API and 9Router services)
 
 ### Free Tier
 
@@ -107,6 +107,7 @@ The id is Kai's own random conversation identifier; nothing about the user or th
 | AI Horde | `aihorde` | Yes (anonymous key `0000000000` allowed at lowest priority) | OpenAI-compatible (via [oai.aihorde.net](https://oai.aihorde.net/); model list is the set of text models with online volunteer workers — availability and latency vary) |
 | Perplexity | `perplexity` | Yes | OpenAI-compatible (Sonar; ships with a curated default model list — no authenticated `/models` endpoint for Sonar; connection validation probes the chat endpoint with an incomplete body to check the API key) |
 | OpenAI-Compatible API | `openai-compatible` | No (optional) | OpenAI-compatible |
+| 9Router | `ninerouter` | No (optional) | OpenAI-compatible (self-hosted AI gateway; default base URL `http://localhost:20128/v1`) |
 | Local Model | `litert` | No | On-device (LiteRT LM) |
 
 ## Connection Validation
@@ -127,9 +128,9 @@ When a connection is validated and models are fetched, the app auto-selects a mo
 
 If a stored list-selection model id is not in the fetched list, it is kept and shown as selected rather than overwritten by auto-select.
 
-### Custom model (OpenAI-Compatible API)
+### Custom model (OpenAI-Compatible API and 9Router)
 
-The **OpenAI-Compatible API** config card keeps the normal model dropdown (when a list is available) and adds a **Custom model** checkbox below it. When checked, a free-text field appears for a model id the server accepts even if `/models` never returns it (e.g. a free tier omitted from the list). List selection and custom id are stored separately; chat uses the custom id only while the checkbox is on. Toggling the checkbox off restores the list selection without losing the typed id.
+The **OpenAI-Compatible API** and **9Router** config cards keep the normal model dropdown (when a list is available) and adds a **Custom model** checkbox below it. When checked, a free-text field appears for a model id the server accepts even if `/models` never returns it (e.g. a free tier omitted from the list). List selection and custom id are stored separately; chat uses the custom id only while the checkbox is on. Toggling the checkbox off restores the list selection without losing the typed id.
 
 ### Model Cards
 
@@ -166,7 +167,7 @@ Users manage services through the settings screen:
 - **Add** — pick from the list of available services (can add the same service multiple times); the OpenAI-Compatible API and the on-device Local Model are pinned to the top of the picker, followed by the highlighted featured provider Atlas Cloud, with the remaining providers sorted alphabetically
 - **Remove** — delete an instance and its stored credentials; deletion is deferred with a snackbar "Undo" option (~4 seconds) before the service is permanently removed
 - **Reorder** — drag to change priority (first = primary, rest = fallbacks)
-- **Configure** — per-instance API key, model selection, base URL (OpenAI-Compatible only; optional custom model id via checkbox)
+- **Configure** — per-instance API key, model selection, base URL (OpenAI-Compatible and 9Router; optional custom model id via checkbox)
 - **Free fallback toggle** — controls whether Free is appended as last resort
 - **Sponsors** — the Free tier card lists all GitHub sponsors in a single grid, with active sponsors first followed by past sponsors
 

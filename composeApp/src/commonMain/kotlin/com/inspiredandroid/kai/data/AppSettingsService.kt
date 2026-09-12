@@ -34,14 +34,15 @@ fun AppSettings.setApiKey(service: Service, apiKey: String) {
 // Model selection
 fun AppSettings.getSelectedModelId(service: Service): String = settings.getString(service.modelIdKey, service.defaultModel ?: "")
 
-// Base URL (for self-hosted services like OpenAI-compatible APIs)
+// Base URL (for self-hosted services like OpenAI-compatible APIs and 9Router)
 fun AppSettings.getBaseUrl(service: Service): String = when (service) {
     Service.OpenAICompatible -> settings.getString(service.baseUrlKey, Service.DEFAULT_OPENAI_COMPATIBLE_BASE_URL)
+    Service.NineRouter -> settings.getString(service.baseUrlKey, Service.DEFAULT_NINEROUTER_BASE_URL)
     else -> ""
 }
 
 fun AppSettings.setBaseUrl(service: Service, baseUrl: String) {
-    if (service == Service.OpenAICompatible) {
+    if (service == Service.OpenAICompatible || service == Service.NineRouter) {
         settings.putString(service.baseUrlKey, baseUrl)
     }
 }

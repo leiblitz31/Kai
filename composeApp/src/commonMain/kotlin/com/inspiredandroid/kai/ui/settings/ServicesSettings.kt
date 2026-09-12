@@ -403,7 +403,7 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                             bottomStart = if (isLast) 12.dp else 0.dp,
                             bottomEnd = if (isLast) 12.dp else 0.dp,
                         )
-                        val isSpecial = service.isOnDevice || service is Service.OpenAICompatible || service is Service.AtlasCloud
+                        val isSpecial = service.isOnDevice || service is Service.OpenAICompatible || service is Service.NineRouter || service is Service.AtlasCloud
                         Surface(
                             onClick = {
                                 actions.onAddService(service)
@@ -598,7 +598,7 @@ private fun ConfiguredServiceCardContent(
                         onChangeModelContextTokens = onChangeModelContextTokens,
                         modelContextTokens = modelContextTokens,
                     )
-                } else if (entry.service is Service.OpenAICompatible) {
+                } else if (entry.service is Service.OpenAICompatible || entry.service is Service.NineRouter) {
                     OpenAICompatibleSettings(
                         baseUrl = entry.baseUrl,
                         onChangeBaseUrl = onChangeBaseUrl,
