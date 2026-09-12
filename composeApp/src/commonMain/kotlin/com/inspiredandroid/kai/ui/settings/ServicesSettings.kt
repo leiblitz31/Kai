@@ -157,6 +157,7 @@ import com.inspiredandroid.kai.ninerouter.addOrUpdateNineConnection
 import com.inspiredandroid.kai.ninerouter.removeNineConnection
 import com.inspiredandroid.kai.ninerouter.importNineConnectionsBulk
 import com.inspiredandroid.kai.ui.components.KaiChip
+import kotlin.time.Clock
 import org.koin.compose.koinInject
 import kotlin.math.roundToInt
 
@@ -487,7 +488,7 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                                 onClick = {
                                     val pid = selectedId?.trim().orEmpty()
                                     if (pid.isBlank() || apiKeyDraft.isBlank()) return@Button
-                                    val connId = "conn_" + kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+                                    val connId = "conn_" + Clock.System.now().toEpochMilliseconds()
                                     val newConn = NineConnection(
                                         id = connId,
                                         provider = pid,
