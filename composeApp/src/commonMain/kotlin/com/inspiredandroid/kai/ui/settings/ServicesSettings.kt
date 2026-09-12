@@ -149,6 +149,12 @@ import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 import sh.calvin.reorderable.ReorderableColumn
+import com.inspiredandroid.kai.data.AppSettings
+import com.inspiredandroid.kai.ninerouter.NineRouterRegistry
+import com.inspiredandroid.kai.ninerouter.getNineRouterConfig
+import com.inspiredandroid.kai.ninerouter.setNineProviderCredentials
+import com.inspiredandroid.kai.ninerouter.removeNineProvider
+import org.koin.compose.koinInject
 import kotlin.math.roundToInt
 
 @Composable
@@ -317,6 +323,74 @@ private fun SponsorList(
 @Composable
 internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions) {
     var showAddServiceSheet by remember { mutableStateOf(false) }
+    val appSettings: AppSettings = koinInject()
+
+    // 9Router Standalone (tanpa Mido) — kelola 142 provider langsung di HP
+    val ninerouterConfig = androidx.compose.runtime.remember { appSettings.getNineRouterConfig() }
+    // Use mutableState for live updates
+    var ninerouterConfigState by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(ninerouterConfig) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { ninerouterConfigState = appSettings.getNineRouterConfig() }
+
+    androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.Card(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), colors = kaiAdaptiveCardColors(), border = kaiAdaptiveCardBorder()) {
+            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.padding(16.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.Text("9Router Standalone (tanpa Mido)", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                androidx.compose.material3.Text("Kelola 142 provider langsung di HP. API Key disimpan di HP, chat langsung ke upstream tanpa lewat Mido. Tetap butuh internet — offline cuma LiteRT.", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                if (ninerouterConfigState.providers.isEmpty()) {
+                    androidx.compose.material3.Text("Belum ada provider.", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                } else {
+                    ninerouterConfigState.providers.entries.forEach { (pid, creds) ->
+                        val meta = NineRouterRegistry.find(pid)
+                        androidx.compose.foundation.layout.Row(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            androidx.compose.foundation.layout.Column {
+                                androidx.compose.material3.Text(meta?.alias ?: pid, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+                                androidx.compose.material3.Text(if (creds.apiKey.isBlank()) "(key kosong)" else creds.apiKey.take(10)+"…", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                            }
+                            androidx.compose.material3.OutlinedButton(onClick = {
+                                appSettings.removeNineProvider(pid)
+                                ninerouterConfigState = appSettings.getNineRouterConfig()
+                            }) { androidx.compose.material3.Text("Hapus") }
+                        }
+                    }
+                }
+                var pickerExpanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                var selectedId by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+                var apiKeyDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+                var accountIdDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+                val allIds = androidx.compose.runtime.remember { NineRouterRegistry.all.map { it.id }.sorted() }
+                androidx.compose.material3.ExposedDropdownMenuBox(expanded = pickerExpanded, onExpandedChange = { pickerExpanded = !pickerExpanded }) {
+                    androidx.compose.material3.OutlinedTextField(value = selectedId ?: "", onValueChange = {}, readOnly = true, label = { androidx.compose.material3.Text("Provider ID") }, trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(expanded = pickerExpanded) }, modifier = androidx.compose.ui.Modifier.menuAnchor().fillMaxWidth())
+                    androidx.compose.material3.ExposedDropdownMenu(expanded = pickerExpanded, onDismissRequest = { pickerExpanded = false }) {
+                        allIds.take(80).forEach { pid ->
+                            androidx.compose.material3.DropdownMenuItem(text = { androidx.compose.material3.Text(pid) }, onClick = {
+                                selectedId = pid
+                                val existing = ninerouterConfigState.providers[pid]
+                                apiKeyDraft = existing?.apiKey ?: ""
+                                accountIdDraft = existing?.accountId ?: ""
+                                pickerExpanded = false
+                            })
+                        }
+                    }
+                }
+                androidx.compose.material3.OutlinedTextField(value = apiKeyDraft, onValueChange = { apiKeyDraft = it }, label = { androidx.compose.material3.Text("API Key / Token") }, modifier = androidx.compose.ui.Modifier.fillMaxWidth(), singleLine = true)
+                val needAcc = selectedId?.let { NineRouterRegistry.find(it)?.needsAccountId } == true
+                if (needAcc) {
+                    androidx.compose.material3.OutlinedTextField(value = accountIdDraft, onValueChange = { accountIdDraft = it }, label = { androidx.compose.material3.Text("Account ID (Cloudflare)") }, modifier = androidx.compose.ui.Modifier.fillMaxWidth(), singleLine = true)
+                }
+                androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.Button(onClick = {
+                        val pid = selectedId?.trim().orEmpty()
+                        if (pid.isBlank() || apiKeyDraft.isBlank()) return@Button
+                        appSettings.setNineProviderCredentials(pid, com.inspiredandroid.kai.ninerouter.NineProviderCredentials(apiKey = apiKeyDraft.trim(), accountId = accountIdDraft.trim()))
+                        ninerouterConfigState = appSettings.getNineRouterConfig()
+                    }, enabled = (selectedId?.isNotBlank() == true && apiKeyDraft.isNotBlank())) { androidx.compose.material3.Text("Tambah / Simpan") }
+                    androidx.compose.material3.OutlinedButton(onClick = { selectedId = null; apiKeyDraft = ""; accountIdDraft = "" }) { androidx.compose.material3.Text("Batal") }
+                }
+                androidx.compose.material3.Text("Total: ${ninerouterConfigState.providers.size} / ${NineRouterRegistry.all.size} tersedia", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            }
+        }
+        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(12.dp))
+    }
 
     // Configured services list
     val entries = uiState.configuredServices
