@@ -11,8 +11,15 @@ data class NineConnection(
     val id: String,
     val provider: String,
     val name: String = "",
-    val apiKey: String = "",
+    val apiKey: *** = "",
     val accountId: String = "",
+    // Optional relay (Vercel/Cloudflare worker) to bypass IP rate limits.
+    // When set, requests POST to relayUrl with x-relay-target/x-relay-path headers.
+    val relayUrl: String = "",
+    // OAuth session tokens (manual paste from browser login; no auto-refresh on device).
+    val accessToken: String = "",
+    val refreshToken: String = "",
+    val expiresAt: Long = 0L,
     val priority: Int = 1,
     val enabled: Boolean = true,
     val consecutiveUseCount: Int = 0,
@@ -31,6 +38,12 @@ data class NineCombo(
 data class NineRouterConfig(
     val connections: List<NineConnection> = emptyList(),
     val combos: List<NineCombo> = emptyList(),
+    // Token-saver pipeline (mirrors 9Router endpoint settings; all fail-open).
+    val rtkEnabled: Boolean = true,
+    val cavemanEnabled: Boolean = false,
+    val cavemanLevel: String = "full",
+    val ponytailEnabled: Boolean = false,
+    val ponytailLevel: String = "full",
 )
 
 private const val KEY_NINEROUTER_CONFIG = "ninerouter_config_json"
@@ -76,6 +89,13 @@ fun AppSettings.lockNineConnectionModel(connectionId: String, model: String, coo
         }
     }
     setNineRouterConfig(cur.copy(connections = updated))
+}
+
+fun AppSettings.getNineCombos(): List<NineCombo> = getNineRouterConfig().combos
+
+fun AppSettings.setNineCombos(combos: List<NineCombo>) {
+    val cur = getNineRouterConfig()
+    setNineRouterConfig(cur.copy(combos = combos))
 }
 
 fun AppSettings.importNineConnectionsBulk(text: String): Int {

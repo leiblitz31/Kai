@@ -428,7 +428,12 @@ class RemoteDataRepository(
                 val cfg = appSettings.getNineRouterConfig()
                 val modelsList = mutableListOf<SettingsModel>()
 
-                val activeProviders = cfg.connections.filter { it.enabled && it.apiKey.isNotBlank() }.map { it.provider }.distinct()
+                // User-defined combos first (selectable by combo name).
+                for (combo in cfg.combos) {
+                    modelsList.add(SettingsModel(id = combo.name, subtitle = "Combo: ${combo.models.size} model"))
+                }
+
+                val activeProviders = cfg.connections.filter { it.enabled && (it.apiKey.isNotBlank() || it.accessToken.isNotBlank() || it.provider.equals("opencode", ignoreCase = true)) }.map { it.provider }.distinct()
                 for (providerId in activeProviders) {
                     val meta = NineRouterRegistry.find(providerId) ?: continue
                     when (meta.id) {
@@ -451,6 +456,17 @@ class RemoteDataRepository(
                         }
                         "openrouter" -> {
                             modelsList.add(SettingsModel(id = "openrouter/auto", subtitle = "OpenRouter Auto"))
+                            modelsList.add(SettingsModel(id = "openrouter/meta-llama/llama-3.2-3b-instruct:free", subtitle = "OpenRouter Llama 3.2 3B (free)"))
+                            modelsList.add(SettingsModel(id = "openrouter/deepseek/deepseek-r1:free", subtitle = "OpenRouter DeepSeek R1 (free)"))
+                        }
+                        "opencode" -> {
+                            modelsList.add(SettingsModel(id = "oc/auto", subtitle = "OpenCode Free (tanpa auth)"))
+                        }
+                        "freebuff" -> {
+                            modelsList.add(SettingsModel(id = "fb/auto", subtitle = "Freebuff (free)"))
+                        }
+                        "gemini" -> {
+                            modelsList.add(SettingsModel(id = "gemini/gemini-2.0-flash", subtitle = "Gemini Flash (free tier)"))
                         }
                         else -> {
                             modelsList.add(SettingsModel(id = "${meta.alias}/default", subtitle = "${meta.id} (default)"))
@@ -811,15 +827,24 @@ class RemoteDataRepository(
         suspend fun <T> call(block: suspend () -> T): T = if (retry) retryApiCall(block) else block()
 
         if (service == Service.NineRouter) {
-            val candidates = NineRouterEngine.getAvailableCandidates(credentials.modelId, credentials, appSettings.getNineRouterConfig())
+            val nineConfig = appSettings.getNineRouterConfig()
+            val hasImages = messages.any { h -> h.attachments.any { it.mimeType.startsWith("image/") } }
+            // RTK-style: compress tool outputs before they go upstream (fail-open).
+            val nineMessages = if (nineConfig.rtkEnabled) {
+                messages.map { h ->
+                    if (h.role == History.Role.TOOL) h.copy(content = NineRouterEngine.compressToolText(h.content)) else h
+                }
+            } else messages
+            val nineSystem = NineRouterEngine.buildSystemPrompt(systemPrompt, nineConfig)
+            val candidates = NineRouterEngine.getAvailableCandidates(credentials.modelId, credentials, nineConfig, hasImages)
             var lastEx: Throwable? = null
             for (candidate in candidates) {
                 try {
                     val eff = candidate.effectiveCredentials
-                    val openAIMessages = buildOpenAIMessages(service, messages, systemPrompt, eff.modelId, declaredToolNames = emptySet())
+                    val openAIMessages = buildOpenAIMessages(service, nineMessages, nineSystem, eff.modelId, declaredToolNames = emptySet())
                     val sessionId = activeConversationId()
                     val response = call {
-                        requests.openAICompatibleChat(service, eff, openAIMessages, sessionId = sessionId, requestTimeoutMs = requestTimeoutMs).getOrThrow()
+                        requests.openAICompatibleChat(service, eff, openAIMessages, customHeaders = candidate.customHeaders, sessionId = sessionId, requestTimeoutMs = requestTimeoutMs).getOrThrow()
                     }
                     val message = response.choices.firstOrNull()?.message
                     val content = message?.effectiveContent
@@ -894,7 +919,7 @@ class RemoteDataRepository(
         if (service.isOnDevice) return true
         if (service == Service.NineRouter) {
             val cfg = appSettings.getNineRouterConfig()
-            if (cfg.connections.any { it.enabled && it.apiKey.isNotBlank() }) return true
+            if (cfg.connections.any { it.enabled && (it.apiKey.isNotBlank() || it.accessToken.isNotBlank() || it.provider.equals("opencode", ignoreCase = true)) }) return true
             return appSettings.getInstanceApiKey(instanceId).isNotBlank() || appSettings.getInstanceBaseUrl(instanceId).isNotBlank()
         }
         if (!service.requiresApiKey && !service.supportsOptionalApiKey) return true
@@ -1104,6 +1129,70 @@ class RemoteDataRepository(
         }
     }
 
+    /**
+     * Single tool-loop turn against one 9Router candidate (combo step × account).
+     * Mirrors the non-9Router body of [handleOpenAICompatibleChatWithTools]'s strategy
+     * so failover candidates get identical Responses-API routing, inline tool-call
+     * extraction, and reasoning traces.
+     */
+    private suspend fun nineChatTurn(
+        service: Service,
+        eff: ServiceCredentials,
+        msgs: List<com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto.Message>,
+        headers: Map<String, String>,
+        tools: List<Tool>,
+    ): LoopChatResult {
+        val useResponsesApi = requiresResponsesApi(service, eff.modelId, eff.baseUrl)
+        if (useResponsesApi) {
+            val response = retryApiCall {
+                requests.openAIResponses(service, eff, toResponsesInput(msgs), tools).getOrThrow()
+            }
+            response.throwIfFailed(service)
+            val text = response.outputText
+            val calls = response.functionCalls.map { fc ->
+                ToolCallInfo(
+                    id = fc.callId ?: Uuid.random().toString(),
+                    name = fc.name.orEmpty(),
+                    arguments = fc.arguments ?: "{}",
+                )
+            }
+            if (text == null && calls.isEmpty()) throw OpenAICompatibleEmptyResponseException()
+            return LoopChatResult(
+                textContent = text.orEmpty(),
+                reasoningContent = response.reasoningSummary,
+                toolCalls = calls,
+            )
+        }
+        val sessionId = activeConversationId()
+        val response = retryApiCall {
+            requests.openAICompatibleChat(service, eff, msgs, tools, customHeaders = headers, sessionId = sessionId).getOrThrow()
+        }
+        val message = response.choices.firstOrNull()?.message ?: throw OpenAICompatibleEmptyResponseException()
+        var calls = message.toolCalls.orEmpty().map { tc ->
+            ToolCallInfo(id = tc.id, name = tc.function.name, arguments = tc.function.arguments)
+        }
+        var textContent = message.effectiveContent ?: ""
+        if (calls.isEmpty() && textContent.contains("<tool_call>")) {
+            val extracted = extractInlineToolCalls(textContent, tools)
+            if (extracted.calls.isNotEmpty()) {
+                textContent = extracted.cleanedText
+                calls = extracted.calls.map {
+                    ToolCallInfo(
+                        id = "inline-${Uuid.random()}",
+                        name = it.name,
+                        arguments = it.arguments,
+                    )
+                }
+            }
+        }
+        return LoopChatResult(
+            textContent = textContent,
+            reasoningContent = message.reasoningTraceFor(textContent),
+            isThinkingContent = message.isContentFromReasoning,
+            toolCalls = calls,
+        )
+    }
+
     private suspend fun handleOpenAICompatibleChatWithTools(
         service: Service,
         credentials: ServiceCredentials,
@@ -1120,6 +1209,35 @@ class RemoteDataRepository(
         val useResponsesApi = requiresResponsesApi(service, credentials.modelId, credentials.baseUrl)
         val strategy = object : ToolLoopStrategy {
             override suspend fun chat(history: List<History>, systemPrompt: String?): LoopChatResult {
+                // 9Router: walk all candidates (combo chain × account pool) per tool-loop
+                // turn, with per-candidate cooldown locks on rate-limit/quota errors.
+                if (service == Service.NineRouter) {
+                    val nineConfig = appSettings.getNineRouterConfig()
+                    val hasImages = history.any { h -> h.attachments.any { it.mimeType.startsWith("image/") } }
+                    val nineHistory = if (nineConfig.rtkEnabled) {
+                        history.map { h ->
+                            if (h.role == History.Role.TOOL) h.copy(content = NineRouterEngine.compressToolText(h.content)) else h
+                        }
+                    } else history
+                    val nineSystem = NineRouterEngine.buildSystemPrompt(systemPrompt, nineConfig)
+                    val candidates = NineRouterEngine.getAvailableCandidates(credentials.modelId, credentials, nineConfig, hasImages)
+                    var lastEx: Throwable? = null
+                    for (candidate in candidates) {
+                        try {
+                            val eff = candidate.effectiveCredentials
+                            val msgs = trimMessagesForContext(buildOpenAIMessages(service, nineHistory, nineSystem, eff.modelId, declaredToolNames), contextWindowTokens)
+                            return nineChatTurn(eff, msgs, candidate.customHeaders, tools)
+                        } catch (e: Throwable) {
+                            lastEx = e
+                            if (candidate.isStandalone && candidate.connectionId != null && NineRouterEngine.isFallbackError(e)) {
+                                appSettings.lockNineConnectionModel(candidate.connectionId, candidate.modelPart, 30_000L)
+                                continue
+                            }
+                            throw e
+                        }
+                    }
+                    throw lastEx ?: OpenAICompatibleEmptyResponseException()
+                }
                 val msgs = trimMessagesForContext(buildOpenAIMessages(service, history, systemPrompt, credentials.modelId, declaredToolNames), contextWindowTokens)
                 if (useResponsesApi) {
                     val response = retryApiCall {

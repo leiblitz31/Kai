@@ -153,6 +153,8 @@ import com.inspiredandroid.kai.data.AppSettings
 import com.inspiredandroid.kai.ninerouter.NineRouterRegistry
 import com.inspiredandroid.kai.ninerouter.NineConnection
 import com.inspiredandroid.kai.ninerouter.getNineRouterConfig
+import com.inspiredandroid.kai.ninerouter.setNineRouterConfig
+import com.inspiredandroid.kai.ninerouter.setNineCombos
 import com.inspiredandroid.kai.ninerouter.addOrUpdateNineConnection
 import com.inspiredandroid.kai.ninerouter.removeNineConnection
 import com.inspiredandroid.kai.ninerouter.importNineConnectionsBulk
@@ -340,6 +342,12 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
     var accountIdDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
     var bulkImportText by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
     var importStatusMsg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    var categoryFilter by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    var relayDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var accessTokenDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var refreshTokenDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var comboNameDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var comboModelsDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
 
     androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
         androidx.compose.material3.Card(
@@ -378,6 +386,12 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                     }
                     KaiChip(selected = (selectedTab == 2), onClick = { selectedTab = 2 }) {
                         androidx.compose.material3.Text("📋 Bulk Import", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    }
+                    KaiChip(selected = (selectedTab == 3), onClick = { selectedTab = 3 }) {
+                        androidx.compose.material3.Text("🔀 Combo (${ninerouterConfigState.combos.size})", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    }
+                    KaiChip(selected = (selectedTab == 4), onClick = { selectedTab = 4 }) {
+                        androidx.compose.material3.Text("⚡ Hemat", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
                     }
                 }
 
@@ -441,14 +455,45 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                     }
 
                     1 -> {
+                        val cats = listOf(
+                            null to "Semua",
+                            "free" to "🆓 Free",
+                            "freeTier" to "⚡ Free Tier",
+                            "oauth" to "🔐 OAuth",
+                            "apikey" to "🔑 API Key",
+                        )
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
+                        ) {
+                            cats.forEach { (cat, label) ->
+                                KaiChip(selected = (categoryFilter == cat), onClick = { categoryFilter = cat }) {
+                                    androidx.compose.material3.Text(label, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
                         androidx.compose.material3.Text("Pilih provider:", style = androidx.compose.material3.MaterialTheme.typography.labelSmall, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
                         androidx.compose.foundation.layout.FlowRow(
                             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
                             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
                         ) {
-                            listOf("cloudflare-ai", "openai", "deepseek", "anthropic", "gemini", "groq", "openrouter", "mistral", "qwen", "kimi", "glm", "minimax").forEach { pid ->
-                                KaiChip(selected = (selectedId == pid), onClick = { selectedId = pid }) {
-                                    androidx.compose.material3.Text(pid, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                            val popular = NineRouterRegistry.all
+                                .filter { p ->
+                                    categoryFilter == null ||
+                                        p.category.equals(categoryFilter, ignoreCase = true) ||
+                                        (categoryFilter == "apikey" && p.category.equals("apikey", ignoreCase = true))
+                                }
+                                .sortedWith(compareBy({ it.category }, { it.id }))
+                                .take(24)
+                            popular.forEach { meta ->
+                                val badge = when {
+                                    meta.category.equals("free", ignoreCase = true) -> " 🆓"
+                                    meta.category.equals("freeTier", ignoreCase = true) -> " ⚡"
+                                    meta.category.equals("oauth", ignoreCase = true) -> " 🔐"
+                                    else -> ""
+                                }
+                                KaiChip(selected = (selectedId == meta.id), onClick = { selectedId = meta.id }) {
+                                    androidx.compose.material3.Text(meta.id + badge, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -459,6 +504,16 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                             modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                             singleLine = true,
                         )
+                        val selMeta = selectedId?.let { NineRouterRegistry.find(it) }
+                        val isOAuth = selMeta?.category.equals("oauth", ignoreCase = true)
+                        val isNoAuth = selMeta?.id == "opencode"
+                        if (isOAuth) {
+                            androidx.compose.material3.Text(
+                                "Provider OAuth: login via browser di perangkat lain, lalu paste token sesi di bawah (tanpa auto-refresh di HP).",
+                                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         androidx.compose.material3.OutlinedTextField(
                             value = accountNameDraft,
                             onValueChange = { accountNameDraft = it },
@@ -469,10 +524,26 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                         androidx.compose.material3.OutlinedTextField(
                             value = apiKeyDraft,
                             onValueChange = { apiKeyDraft = it },
-                            label = { androidx.compose.material3.Text("API Key / Token") },
+                            label = { androidx.compose.material3.Text(if (isNoAuth) "API Key (opsional — kosongkan untuk tanpa auth)" else "API Key / Token") },
                             modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                             singleLine = true,
                         )
+                        if (isOAuth) {
+                            androidx.compose.material3.OutlinedTextField(
+                                value = accessTokenDraft,
+                                onValueChange = { accessTokenDraft = it },
+                                label = { androidx.compose.material3.Text("Access Token (hasil login browser)") },
+                                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                singleLine = true,
+                            )
+                            androidx.compose.material3.OutlinedTextField(
+                                value = refreshTokenDraft,
+                                onValueChange = { refreshTokenDraft = it },
+                                label = { androidx.compose.material3.Text("Refresh Token (opsional)") },
+                                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                singleLine = true,
+                            )
+                        }
                         val needAcc = selectedId?.let { NineRouterRegistry.find(it)?.needsAccountId } == true
                         if (needAcc) {
                             androidx.compose.material3.OutlinedTextField(
@@ -483,11 +554,19 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                                 singleLine = true,
                             )
                         }
+                        androidx.compose.material3.OutlinedTextField(
+                            value = relayDraft,
+                            onValueChange = { relayDraft = it },
+                            label = { androidx.compose.material3.Text("Relay URL (opsional — bypass limit IP)") },
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
                         androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
                             androidx.compose.material3.Button(
                                 onClick = {
                                     val pid = selectedId?.trim().orEmpty()
-                                    if (pid.isBlank() || apiKeyDraft.isBlank()) return@Button
+                                    val hasKey = apiKeyDraft.isNotBlank() || accessTokenDraft.isNotBlank() || isNoAuth
+                                    if (pid.isBlank() || !hasKey) return@Button
                                     val connId = "conn_" + Clock.System.now().toEpochMilliseconds()
                                     val newConn = NineConnection(
                                         id = connId,
@@ -495,6 +574,9 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                                         name = accountNameDraft.trim(),
                                         apiKey = apiKeyDraft.trim(),
                                         accountId = accountIdDraft.trim(),
+                                        relayUrl = relayDraft.trim(),
+                                        accessToken = accessTokenDraft.trim(),
+                                        refreshToken = refreshTokenDraft.trim(),
                                     )
                                     appSettings.addOrUpdateNineConnection(newConn)
                                     ninerouterConfigState = appSettings.getNineRouterConfig()
@@ -502,9 +584,12 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                                     accountNameDraft = ""
                                     apiKeyDraft = ""
                                     accountIdDraft = ""
+                                    relayDraft = ""
+                                    accessTokenDraft = ""
+                                    refreshTokenDraft = ""
                                     selectedTab = 0
                                 },
-                                enabled = (selectedId?.isNotBlank() == true && apiKeyDraft.isNotBlank()),
+                                enabled = (selectedId?.isNotBlank() == true && (apiKeyDraft.isNotBlank() || accessTokenDraft.isNotBlank() || isNoAuth)),
                             ) {
                                 androidx.compose.material3.Text("Simpan Akun")
                             }
@@ -513,6 +598,9 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                                 accountNameDraft = ""
                                 apiKeyDraft = ""
                                 accountIdDraft = ""
+                                relayDraft = ""
+                                accessTokenDraft = ""
+                                refreshTokenDraft = ""
                             }) {
                                 androidx.compose.material3.Text("Reset")
                             }
@@ -553,6 +641,148 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
                             importStatusMsg?.let { msg ->
                                 androidx.compose.material3.Text(msg, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = androidx.compose.material3.MaterialTheme.colorScheme.primary)
                             }
+                        }
+                    }
+
+                    3 -> {
+                        androidx.compose.material3.Text(
+                            "Rantai fallback model: jika model pertama kena limit/kuota, otomatis lompat ke berikutnya dalam satu chat.",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (ninerouterConfigState.combos.isEmpty()) {
+                            androidx.compose.material3.Text(
+                                "Belum ada combo. Contoh: Hermini = cf/@cf/qwen/qwen3.8-27b, deepseek/deepseek-chat",
+                                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+                                ninerouterConfigState.combos.forEach { combo ->
+                                    androidx.compose.material3.Card(
+                                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                        colors = androidx.compose.material3.CardDefaults.cardColors(
+                                            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        ),
+                                    ) {
+                                        androidx.compose.foundation.layout.Row(
+                                            modifier = androidx.compose.ui.Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        ) {
+                                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                                androidx.compose.material3.Text(combo.name, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, color = androidx.compose.material3.MaterialTheme.colorScheme.primary)
+                                                androidx.compose.material3.Text(
+                                                    combo.models.joinToString(" → "),
+                                                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                                                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                            androidx.compose.material3.OutlinedButton(
+                                                onClick = {
+                                                    appSettings.setNineCombos(ninerouterConfigState.combos.filterNot { it.id == combo.id })
+                                                    ninerouterConfigState = appSettings.getNineRouterConfig()
+                                                },
+                                                modifier = androidx.compose.ui.Modifier.padding(start = 8.dp),
+                                            ) {
+                                                androidx.compose.material3.Text("Hapus", style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        androidx.compose.material3.OutlinedTextField(
+                            value = comboNameDraft,
+                            onValueChange = { comboNameDraft = it },
+                            label = { androidx.compose.material3.Text("Nama Combo (mis: Hermini)") },
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        androidx.compose.material3.OutlinedTextField(
+                            value = comboModelsDraft,
+                            onValueChange = { comboModelsDraft = it },
+                            label = { androidx.compose.material3.Text("Model (pisahkan koma/baris)") },
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            maxLines = 6,
+                        )
+                        androidx.compose.material3.Button(
+                            onClick = {
+                                val models = comboModelsDraft.split(",", "\n").map { it.trim() }.filter { it.isNotBlank() }
+                                if (comboNameDraft.isBlank() || models.isEmpty()) return@Button
+                                val newCombo = com.inspiredandroid.kai.ninerouter.NineCombo(
+                                    id = "combo_" + Clock.System.now().toEpochMilliseconds(),
+                                    name = comboNameDraft.trim(),
+                                    models = models,
+                                )
+                                appSettings.setNineCombos(ninerouterConfigState.combos + newCombo)
+                                ninerouterConfigState = appSettings.getNineRouterConfig()
+                                comboNameDraft = ""
+                                comboModelsDraft = ""
+                            },
+                            enabled = (comboNameDraft.isNotBlank() && comboModelsDraft.isNotBlank()),
+                        ) {
+                            androidx.compose.material3.Text("Simpan Combo")
+                        }
+                    }
+
+                    4 -> {
+                        androidx.compose.material3.Text(
+                            "Pipeline hemat token (fail-open — gagal kompres = kirim asli, chat tidak pernah rusak).",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                androidx.compose.material3.Text("RTK — kompres output tool", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+                                androidx.compose.material3.Text("Pangkas git diff/log/grep sebelum dikirim (hemat 20–40%).", style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = ninerouterConfigState.rtkEnabled,
+                                onCheckedChange = {
+                                    appSettings.setNineRouterConfig(ninerouterConfigState.copy(rtkEnabled = it))
+                                    ninerouterConfigState = appSettings.getNineRouterConfig()
+                                },
+                            )
+                        }
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                androidx.compose.material3.Text("Caveman — jawaban padat", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+                                androidx.compose.material3.Text("Tanpa basa-basi, substansi tetap (hemat output).", style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = ninerouterConfigState.cavemanEnabled,
+                                onCheckedChange = {
+                                    appSettings.setNineRouterConfig(ninerouterConfigState.copy(cavemanEnabled = it))
+                                    ninerouterConfigState = appSettings.getNineRouterConfig()
+                                },
+                            )
+                        }
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                androidx.compose.material3.Text("Ponytail — kode minimal", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+                                androidx.compose.material3.Text("Gaya senior dev malas: YAGNI, stdlib dulu.", style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = ninerouterConfigState.ponytailEnabled,
+                                onCheckedChange = {
+                                    appSettings.setNineRouterConfig(ninerouterConfigState.copy(ponytailEnabled = it))
+                                    ninerouterConfigState = appSettings.getNineRouterConfig()
+                                },
+                            )
                         }
                     }
                 }
