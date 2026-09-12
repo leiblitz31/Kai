@@ -95,6 +95,9 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.ExperimentalTime
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
+import com.inspiredandroid.kai.ninerouter.NineRouterEngine
+import com.inspiredandroid.kai.ninerouter.NineRouterRegistry
+import com.inspiredandroid.kai.ninerouter.getNineRouterConfig
 
 private const val MAX_TOOL_ITERATIONS = 15
 private const val MIN_TOOL_DISPLAY_MS = 2000L
@@ -400,6 +403,10 @@ class RemoteDataRepository(
                 fetchInstanceModels(service, instanceId)
             }
 
+            Service.NineRouter -> {
+                fetchInstanceModels(service, instanceId)
+            }
+
             else -> fetchInstanceModels(service, instanceId)
         }
     }
@@ -415,6 +422,56 @@ class RemoteDataRepository(
             }
 
             Service.Free -> { /* No model listing */ }
+
+            Service.NineRouter -> {
+                val cfg = appSettings.getNineRouterConfig()
+                val modelsList = mutableListOf<SettingsModel>()
+
+                for ((providerId, pCreds) in cfg.providers) {
+                    if (!pCreds.enabled || pCreds.apiKey.isBlank()) continue
+                    val meta = NineRouterRegistry.find(providerId) ?: continue
+                    when (meta.id) {
+                        "cloudflare-ai" -> {
+                            modelsList.add(SettingsModel(id = "cf/@cf/meta/llama-3.2-1b-instruct", subtitle = "Cloudflare Llama 3.2 1B"))
+                            modelsList.add(SettingsModel(id = "cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast", subtitle = "Cloudflare Llama 3.3 70B"))
+                            modelsList.add(SettingsModel(id = "cf/@cf/qwen/qwen2.5-coder-32b-instruct", subtitle = "Cloudflare Qwen 2.5 Coder"))
+                            modelsList.add(SettingsModel(id = "cf/@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", subtitle = "Cloudflare R1 Distill Qwen"))
+                        }
+                        "deepseek" -> {
+                            modelsList.add(SettingsModel(id = "deepseek/deepseek-chat", subtitle = "DeepSeek Chat (V3)"))
+                            modelsList.add(SettingsModel(id = "deepseek/deepseek-reasoner", subtitle = "DeepSeek Reasoner (R1)"))
+                        }
+                        "openai" -> {
+                            modelsList.add(SettingsModel(id = "openai/gpt-4o", subtitle = "OpenAI GPT-4o"))
+                            modelsList.add(SettingsModel(id = "openai/gpt-4o-mini", subtitle = "OpenAI GPT-4o Mini"))
+                        }
+                        "groq" -> {
+                            modelsList.add(SettingsModel(id = "groq/llama-3.3-70b-versatile", subtitle = "Groq Llama 3.3 70B"))
+                        }
+                        "openrouter" -> {
+                            modelsList.add(SettingsModel(id = "openrouter/auto", subtitle = "OpenRouter Auto"))
+                        }
+                        else -> {
+                            modelsList.add(SettingsModel(id = "${meta.alias}/default", subtitle = "${meta.id} (default)"))
+                        }
+                    }
+                }
+
+                val presets = listOf(
+                    "cf/@cf/meta/llama-3.2-1b-instruct" to "Cloudflare Llama 3.2 1B",
+                    "cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast" to "Cloudflare Llama 3.3 70B",
+                    "cf/@cf/qwen/qwen2.5-coder-32b-instruct" to "Cloudflare Qwen 2.5 Coder",
+                    "deepseek/deepseek-chat" to "DeepSeek Chat (V3)",
+                    "openai/gpt-4o-mini" to "OpenAI GPT-4o Mini",
+                    "groq/llama-3.3-70b-versatile" to "Groq Llama 3.3 70B",
+                    "Hermini" to "Combo Hermini",
+                )
+                for ((id, name) in presets) {
+                    modelsList.add(SettingsModel(id = id, subtitle = name))
+                }
+
+                updateModelsForInstance(instanceId, modelsList.distinctBy { it.id }, service)
+            }
 
             Service.LiteRT -> {
                 val engine = localInferenceEngine ?: return
@@ -705,7 +762,10 @@ class RemoteDataRepository(
             return AssistantTurn(askWithLocalEngine(messages, localPrompt, instanceId, history))
         }
 
-        val creds = instanceCredentials(instanceId, service)
+        var creds = instanceCredentials(instanceId, service)
+        if (service == Service.NineRouter) {
+            creds = NineRouterEngine.resolveTarget(creds.modelId, creds, appSettings.getNineRouterConfig()).effectiveCredentials
+        }
         val tools = if (supportsTools(creds.modelId)) getAvailableTools() else emptyList()
 
         if (tools.isEmpty()) {
@@ -749,6 +809,12 @@ class RemoteDataRepository(
     ): AssistantTurn {
         suspend fun <T> call(block: suspend () -> T): T = if (retry) retryApiCall(block) else block()
 
+        val effectiveCredentials = if (service == Service.NineRouter) {
+            NineRouterEngine.resolveTarget(credentials.modelId, credentials, appSettings.getNineRouterConfig()).effectiveCredentials
+        } else {
+            credentials
+        }
+
         return when (service) {
             Service.Gemini -> {
                 val response = call {
@@ -777,10 +843,10 @@ class RemoteDataRepository(
             else -> {
                 // No tools on this request — strip any historic tool_calls so Groq's strict
                 // validator doesn't see calls to tools we no longer declare.
-                val openAIMessages = buildOpenAIMessages(service, messages, systemPrompt, credentials.modelId, declaredToolNames = emptySet())
-                if (requiresResponsesApi(service, credentials.modelId, credentials.baseUrl)) {
+                val openAIMessages = buildOpenAIMessages(service, messages, systemPrompt, effectiveCredentials.modelId, declaredToolNames = emptySet())
+                if (requiresResponsesApi(service, effectiveCredentials.modelId, effectiveCredentials.baseUrl)) {
                     val response = call {
-                        requests.openAIResponses(service, credentials, toResponsesInput(openAIMessages), requestTimeoutMs = requestTimeoutMs).getOrThrow()
+                        requests.openAIResponses(service, effectiveCredentials, toResponsesInput(openAIMessages), requestTimeoutMs = requestTimeoutMs).getOrThrow()
                     }
                     response.throwIfFailed(service)
                     val content = response.outputText
@@ -789,7 +855,7 @@ class RemoteDataRepository(
                 }
                 val sessionId = activeConversationId()
                 val response = call {
-                    requests.openAICompatibleChat(service, credentials, openAIMessages, sessionId = sessionId, requestTimeoutMs = requestTimeoutMs).getOrThrow()
+                    requests.openAICompatibleChat(service, effectiveCredentials, openAIMessages, sessionId = sessionId, requestTimeoutMs = requestTimeoutMs).getOrThrow()
                 }
                 val message = response.choices.firstOrNull()?.message
                 val content = message?.effectiveContent
@@ -802,6 +868,11 @@ class RemoteDataRepository(
     private fun hasValidInstanceApiKey(instanceId: String, service: Service): Boolean {
         if (service == Service.Free) return true
         if (service.isOnDevice) return true
+        if (service == Service.NineRouter) {
+            val cfg = appSettings.getNineRouterConfig()
+            if (cfg.providers.values.any { it.enabled && it.apiKey.isNotBlank() }) return true
+            return appSettings.getInstanceApiKey(instanceId).isNotBlank() || appSettings.getInstanceBaseUrl(instanceId).isNotBlank()
+        }
         if (!service.requiresApiKey && !service.supportsOptionalApiKey) return true
         if (service.requiresApiKey) return appSettings.getInstanceApiKey(instanceId).isNotBlank()
         return true // Optional API key services are always valid

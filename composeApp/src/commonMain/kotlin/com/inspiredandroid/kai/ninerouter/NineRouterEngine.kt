@@ -1,5 +1,7 @@
 package com.inspiredandroid.kai.ninerouter
 
+import com.inspiredandroid.kai.httpClient
+import com.inspiredandroid.kai.network.ServiceCredentials
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -9,18 +11,100 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import com.inspiredandroid.kai.httpClient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+data class NineRouterResolvedTarget(
+    val effectiveCredentials: ServiceCredentials,
+    val meta: NineProviderMeta?,
+    val isStandalone: Boolean,
+    val customHeaders: Map<String, String> = emptyMap(),
+)
+
 /**
- * Standalone in-app engine — direct HTTP to upstream, no Mido/9Router server.
- * Phase 1: OpenAI-compatible + Cloudflare AI (template {accountId}) + Claude-format.
+ * Standalone in-app engine — direct HTTP to upstream without Mido server.
+ * Handles 142 providers from NineRouterRegistry.
  */
 object NineRouterEngine {
     private val jsonLenient = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    fun resolveTarget(
+        rawModelId: String,
+        fallbackCredentials: ServiceCredentials,
+        config: NineRouterConfig,
+    ): NineRouterResolvedTarget {
+        val modelStr = rawModelId.trim()
+        if (modelStr.isEmpty()) {
+            return NineRouterResolvedTarget(fallbackCredentials, null, isStandalone = false)
+        }
+
+        // 1. Resolve alias or provider prefix
+        val providerKey: String?
+        val modelPart: String
+
+        if (modelStr.startsWith("@cf/")) {
+            providerKey = "cloudflare-ai"
+            modelPart = modelStr
+        } else if (modelStr.contains("/")) {
+            providerKey = modelStr.substringBefore("/")
+            modelPart = modelStr.substringAfter("/")
+        } else {
+            providerKey = null
+            modelPart = modelStr
+        }
+
+        val meta = if (providerKey != null) {
+            NineRouterRegistry.find(providerKey) ?: NineRouterRegistry.find(providerKey.lowercase())
+        } else null
+
+        // 2. Check if standalone credentials exist for this provider
+        val creds = if (meta != null) {
+            config.providers[meta.id]
+                ?: config.providers[meta.alias]
+                ?: config.providers.entries.firstOrNull { 
+                    it.key.equals(meta.id, ignoreCase = true) || it.key.equals(meta.alias, ignoreCase = true) 
+                }?.value
+        } else {
+            // If bare model name, check if any enabled standalone provider has an API key
+            config.providers.values.firstOrNull { it.enabled && it.apiKey.isNotBlank() }
+        }
+
+        if (meta != null && creds != null && creds.enabled && creds.apiKey.isNotBlank()) {
+            // Standalone match!
+            val upstreamModel = if (meta.id == "cloudflare-ai") {
+                if (modelPart.startsWith("@cf/")) modelPart else "@cf/$modelPart"
+            } else {
+                modelPart
+            }
+
+            var base = meta.baseUrl
+            if (meta.needsAccountId) {
+                base = base.replace("{accountId}", creds.accountId.trim())
+            }
+            // Strip /chat/completions or /messages from the end so Kai's resolveUrl appends /chat/completions cleanly
+            val effectiveCreds = ServiceCredentials(
+                apiKey = creds.apiKey.trim(),
+                modelId = upstreamModel,
+                baseUrl = base,
+            )
+
+            return NineRouterResolvedTarget(
+                effectiveCredentials = effectiveCreds,
+                meta = meta,
+                isStandalone = true,
+                customHeaders = customHeaders,
+            )
+        }
+
+        // 3. Fallback to bridge (Mido)
+        return NineRouterResolvedTarget(
+            effectiveCredentials = fallbackCredentials,
+            meta = meta,
+            isStandalone = false,
+        )
+    }
 
     fun resolveBaseUrl(meta: NineProviderMeta, creds: NineProviderCredentials): String {
         var url = meta.baseUrl
@@ -46,9 +130,7 @@ object NineRouterEngine {
                 if (meta.needsAccountId) it.replace("{accountId}", creds.accountId.trim()) else it
             }
             meta.baseUrl.isNotBlank() -> {
-                // Fallback: derive /models from baseUrl if possible
                 val base = resolveBaseUrl(meta, creds)
-                // Heuristic: replace trailing /chat/completions with /models
                 if (base.contains("/chat/completions")) base.replace("/chat/completions", "/models")
                 else base
             }
@@ -94,7 +176,6 @@ object NineRouterEngine {
             val text = resp.bodyAsText()
             val el = jsonLenient.parseToJsonElement(text)
             val ids = mutableListOf<String>()
-            // OpenAI format: { data: [{id: "..."}] } or array
             val arr = when {
                 el is kotlinx.serialization.json.JsonArray -> el
                 el is kotlinx.serialization.json.JsonObject && el["data"] is kotlinx.serialization.json.JsonArray -> el["data"]!!.jsonArray
@@ -125,7 +206,6 @@ object NineRouterEngine {
             val isClaude = meta.format == "claude"
             val url = base
             val resp = if (isClaude) {
-                // Claude messages format — simplified (no tools)
                 httpClient().post(url) {
                     contentType(ContentType.Application.Json)
                     val auth = resolveAuthHeader(meta, creds) ?: return Result.failure(IllegalStateException("Missing API key for ${meta.id}"))
@@ -156,20 +236,17 @@ object NineRouterEngine {
             }
             if (!resp.status.isSuccess()) return Result.failure(IllegalStateException("Chat ${resp.status}: ${resp.bodyAsText().take(600)}"))
             val text = resp.bodyAsText()
-            // Extract content (non-stream)
             try {
                 val el = jsonLenient.parseToJsonElement(text)
                 if (el is kotlinx.serialization.json.JsonObject) {
-                    // OpenAI: choices[0].message.content
                     el["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message")?.jsonObject?.get("content")?.let {
                         return Result.success(it.jsonPrimitive.content)
                     }
-                    // Claude: content[0].text
                     el["content"]?.jsonArray?.firstOrNull()?.jsonObject?.get("text")?.let {
                         return Result.success(it.jsonPrimitive.content)
                     }
                 }
-            } catch (_: Exception) { /* fallthrough to raw */ }
+            } catch (_: Exception) { }
             Result.success(text.take(4000))
         } catch (e: Exception) {
             Result.failure(e)
