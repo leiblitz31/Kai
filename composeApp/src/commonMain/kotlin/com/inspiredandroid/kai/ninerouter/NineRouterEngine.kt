@@ -84,6 +84,12 @@ object NineRouterEngine {
                 base = base.replace("{accountId}", creds.accountId.trim())
             }
             // Strip /chat/completions or /messages from the end so Kai's resolveUrl appends /chat/completions cleanly
+            val customHeaders = mutableMapOf<String, String>()
+            if (meta.format == "claude") {
+                customHeaders["anthropic-version"] = "2023-06-01"
+                customHeaders["x-api-key"] = creds.apiKey.trim()
+            }
+
             val effectiveCreds = ServiceCredentials(
                 apiKey = creds.apiKey.trim(),
                 modelId = upstreamModel,
