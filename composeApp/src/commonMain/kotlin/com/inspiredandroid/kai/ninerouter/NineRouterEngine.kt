@@ -5,42 +5,47 @@ import com.inspiredandroid.kai.network.ServiceCredentials
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+data class NineRouterCandidate(
+    val connectionId: String?,
+    val effectiveCredentials: ServiceCredentials,
+    val meta: NineProviderMeta?,
+    val modelPart: String,
+    val isStandalone: Boolean,
+    val customHeaders: Map<String, String> = emptyMap(),
+)
+
 data class NineRouterResolvedTarget(
     val effectiveCredentials: ServiceCredentials,
     val meta: NineProviderMeta?,
     val isStandalone: Boolean,
     val customHeaders: Map<String, String> = emptyMap(),
+    val connectionId: String? = null,
 )
 
 /**
- * Standalone in-app engine — direct HTTP to upstream without Mido server.
- * Handles 142 providers from NineRouterRegistry.
+ * Standalone in-app router engine — direct HTTP upstream client.
+ * Multi-account pooling, failover, and model-level locks.
  */
 object NineRouterEngine {
     private val jsonLenient = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    fun resolveTarget(
+    fun getAvailableCandidates(
         rawModelId: String,
         fallbackCredentials: ServiceCredentials,
         config: NineRouterConfig,
-    ): NineRouterResolvedTarget {
+    ): List<NineRouterCandidate> {
         val modelStr = rawModelId.trim()
         if (modelStr.isEmpty()) {
-            return NineRouterResolvedTarget(fallbackCredentials, null, isStandalone = false)
+            return listOf(NineRouterCandidate(null, fallbackCredentials, null, "", isStandalone = false))
         }
 
-        // 1. Resolve alias or provider prefix
         val providerKey: String?
         val modelPart: String
 
@@ -59,70 +64,108 @@ object NineRouterEngine {
             NineRouterRegistry.find(providerKey) ?: NineRouterRegistry.find(providerKey.lowercase())
         } else null
 
-        // 2. Check if standalone credentials exist for this provider
-        val creds = if (meta != null) {
-            config.providers[meta.id]
-                ?: config.providers[meta.alias]
-                ?: config.providers.entries.firstOrNull { 
-                    it.key.equals(meta.id, ignoreCase = true) || it.key.equals(meta.alias, ignoreCase = true) 
-                }?.value
+        val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+
+        val matching = if (meta != null) {
+            config.connections.filter { conn ->
+                conn.enabled && conn.apiKey.isNotBlank() &&
+                (conn.provider.equals(meta.id, ignoreCase = true) || conn.provider.equals(meta.alias, ignoreCase = true))
+            }
         } else {
-            // If bare model name, check if any enabled standalone provider has an API key
-            config.providers.values.firstOrNull { it.enabled && it.apiKey.isNotBlank() }
+            emptyList()
         }
 
-        if (meta != null && creds != null && creds.enabled && creds.apiKey.isNotBlank()) {
-            // Standalone match!
-            val upstreamModel = if (meta.id == "cloudflare-ai") {
+        if (matching.isNotEmpty()) {
+            val available = matching.filter { conn ->
+                val lockModel = conn.modelLocks[modelPart] ?: 0L
+                val lockAll = conn.modelLocks["__all"] ?: 0L
+                lockModel <= now && lockAll <= now
+            }.sortedWith(compareBy({ it.priority }, { it.lastUsedAt }))
+
+            val candidatesPool = if (available.isNotEmpty()) available else matching.sortedBy {
+                it.modelLocks[modelPart] ?: it.modelLocks["__all"] ?: 0L
+            }
+
+            val upstreamModel = if (meta?.id == "cloudflare-ai") {
                 if (modelPart.startsWith("@cf/")) modelPart else "@cf/$modelPart"
             } else {
                 modelPart
             }
 
-            var base = meta.baseUrl
-            if (meta.needsAccountId) {
-                base = base.replace("{accountId}", creds.accountId.trim())
-            }
-            // Strip /chat/completions or /messages from the end so Kai's resolveUrl appends /chat/completions cleanly
-            val customHeaders = mutableMapOf<String, String>()
-            if (meta.format == "claude") {
-                customHeaders["anthropic-version"] = "2023-06-01"
-                customHeaders["x-api-key"] = creds.apiKey.trim()
-            }
+            return candidatesPool.map { conn ->
+                var base = meta?.baseUrl ?: ""
+                if (meta?.needsAccountId == true) {
+                    base = base.replace("{accountId}", conn.accountId.trim())
+                }
 
-            val effectiveCreds = ServiceCredentials(
-                apiKey = creds.apiKey.trim(),
-                modelId = upstreamModel,
-                baseUrl = base,
-            )
+                val customHeaders = mutableMapOf<String, String>()
+                if (meta?.format == "claude") {
+                    customHeaders["anthropic-version"] = "2023-06-01"
+                    customHeaders["x-api-key"] = conn.apiKey.trim()
+                }
 
-            return NineRouterResolvedTarget(
-                effectiveCredentials = effectiveCreds,
-                meta = meta,
-                isStandalone = true,
-                customHeaders = customHeaders,
-            )
+                val effectiveCreds = ServiceCredentials(
+                    apiKey = conn.apiKey.trim(),
+                    modelId = upstreamModel,
+                    baseUrl = base,
+                )
+
+                NineRouterCandidate(
+                    connectionId = conn.id,
+                    effectiveCredentials = effectiveCreds,
+                    meta = meta,
+                    modelPart = modelPart,
+                    isStandalone = true,
+                    customHeaders = customHeaders,
+                )
+            }
         }
 
-        // 3. Fallback to bridge (Mido)
-        return NineRouterResolvedTarget(
-            effectiveCredentials = fallbackCredentials,
-            meta = meta,
-            isStandalone = false,
+        // Fallback target
+        return listOf(
+            NineRouterCandidate(
+                connectionId = null,
+                effectiveCredentials = fallbackCredentials,
+                meta = meta,
+                modelPart = modelPart,
+                isStandalone = false,
+            )
         )
     }
 
-    fun resolveBaseUrl(meta: NineProviderMeta, creds: NineProviderCredentials): String {
+    fun resolveTarget(
+        rawModelId: String,
+        fallbackCredentials: ServiceCredentials,
+        config: NineRouterConfig,
+    ): NineRouterResolvedTarget {
+        val candidate = getAvailableCandidates(rawModelId, fallbackCredentials, config).first()
+        return NineRouterResolvedTarget(
+            effectiveCredentials = candidate.effectiveCredentials,
+            meta = candidate.meta,
+            isStandalone = candidate.isStandalone,
+            customHeaders = candidate.customHeaders,
+            connectionId = candidate.connectionId,
+        )
+    }
+
+    fun isFallbackError(e: Throwable): Boolean {
+        val msg = (e.message ?: "").lowercase()
+        return msg.contains("429") || msg.contains("rate limit") || msg.contains("quota") ||
+               msg.contains("401") || msg.contains("unauthorized") || msg.contains("403") ||
+               msg.contains("400") || msg.contains("overloaded") || msg.contains("exhausted")
+    }
+
+    fun resolveBaseUrl(meta: NineProviderMeta, conn: NineConnection): String {
         var url = meta.baseUrl
         if (meta.needsAccountId) {
-            val acc = creds.accountId.trim()
+            val acc = conn.accountId.trim()
             if (acc.isNotEmpty()) url = url.replace("{accountId}", acc)
         }
         return url
     }
 
-    fun resolveAuthHeader(meta: NineProviderMeta, creds: NineProviderCredentials): Pair<String, String>? {
-        val key = creds.apiKey.trim()
+    fun resolveAuthHeader(meta: NineProviderMeta, conn: NineConnection): Pair<String, String>? {
+        val key = conn.apiKey.trim()
         if (key.isEmpty()) return null
         return when (meta.format) {
             "claude" -> "x-api-key" to key
@@ -130,13 +173,13 @@ object NineRouterEngine {
         }
     }
 
-    suspend fun validateProvider(meta: NineProviderMeta, creds: NineProviderCredentials): Result<Unit> {
+    suspend fun validateConnection(meta: NineProviderMeta, conn: NineConnection): Result<Unit> {
         val url = when {
             meta.validateUrl.isNotBlank() -> meta.validateUrl.let {
-                if (meta.needsAccountId) it.replace("{accountId}", creds.accountId.trim()) else it
+                if (meta.needsAccountId) it.replace("{accountId}", conn.accountId.trim()) else it
             }
             meta.baseUrl.isNotBlank() -> {
-                val base = resolveBaseUrl(meta, creds)
+                val base = resolveBaseUrl(meta, conn)
                 if (base.contains("/chat/completions")) base.replace("/chat/completions", "/models")
                 else base
             }
@@ -144,7 +187,7 @@ object NineRouterEngine {
         }
         return try {
             val resp = httpClient().get(url) {
-                val auth = resolveAuthHeader(meta, creds)
+                val auth = resolveAuthHeader(meta, conn)
                 if (auth != null) {
                     if (auth.first == "Authorization") bearerAuth(auth.second.removePrefix("Bearer ").trim())
                     else header(auth.first, auth.second)
@@ -158,102 +201,37 @@ object NineRouterEngine {
         }
     }
 
-    suspend fun fetchModels(meta: NineProviderMeta, creds: NineProviderCredentials): Result<List<String>> {
+    suspend fun fetchModels(meta: NineProviderMeta, conn: NineConnection): Result<List<String>> {
         val validateUrl = when {
             meta.validateUrl.isNotBlank() -> meta.validateUrl.let {
-                if (meta.needsAccountId) it.replace("{accountId}", creds.accountId.trim()) else it
+                if (meta.needsAccountId) it.replace("{accountId}", conn.accountId.trim()) else it
             }
             meta.baseUrl.isNotBlank() -> {
-                val base = resolveBaseUrl(meta, creds)
+                val base = resolveBaseUrl(meta, conn)
                 if (base.contains("/chat/completions")) base.replace("/chat/completions", "/models") else base
             }
             else -> return Result.success(emptyList())
         }
         return try {
             val resp = httpClient().get(validateUrl) {
-                val auth = resolveAuthHeader(meta, creds)
+                val auth = resolveAuthHeader(meta, conn)
                 if (auth != null) {
                     if (auth.first == "Authorization") bearerAuth(auth.second.removePrefix("Bearer ").trim())
                     else header(auth.first, auth.second)
                 }
                 if (meta.format == "claude") header("anthropic-version", "2023-06-01")
             }
-            if (!resp.status.isSuccess()) return Result.failure(IllegalStateException("Fetch models ${resp.status}: ${resp.bodyAsText().take(400)}"))
+            if (!resp.status.isSuccess()) return Result.failure(IllegalStateException("Failed ${resp.status}"))
             val text = resp.bodyAsText()
-            val el = jsonLenient.parseToJsonElement(text)
-            val ids = mutableListOf<String>()
-            val arr = when {
-                el is kotlinx.serialization.json.JsonArray -> el
-                el is kotlinx.serialization.json.JsonObject && el["data"] is kotlinx.serialization.json.JsonArray -> el["data"]!!.jsonArray
-                else -> null
+            val parsed = jsonLenient.parseToJsonElement(text).jsonObject
+            val data = parsed["data"]?.jsonArray
+                ?: parsed["models"]?.jsonArray
+                ?: return Result.success(emptyList())
+            val models = data.mapNotNull { item ->
+                val obj = item.jsonObject
+                obj["id"]?.jsonPrimitive?.content ?: obj["name"]?.jsonPrimitive?.content
             }
-            if (arr != null) {
-                for (item in arr) {
-                    val obj = item.jsonObject
-                    obj["id"]?.jsonPrimitive?.content?.let { ids.add(it) }
-                }
-            }
-            Result.success(ids)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun chat(
-        meta: NineProviderMeta,
-        creds: NineProviderCredentials,
-        modelId: String,
-        messages: List<Map<String, String>>,
-        stream: Boolean = false,
-    ): Result<String> {
-        val base = resolveBaseUrl(meta, creds)
-        if (base.isBlank()) return Result.failure(IllegalStateException("No baseUrl for ${meta.id}"))
-        return try {
-            val isClaude = meta.format == "claude"
-            val url = base
-            val resp = if (isClaude) {
-                httpClient().post(url) {
-                    contentType(ContentType.Application.Json)
-                    val auth = resolveAuthHeader(meta, creds) ?: return Result.failure(IllegalStateException("Missing API key for ${meta.id}"))
-                    header(auth.first, auth.second)
-                    header("anthropic-version", "2023-06-01")
-                    setBody(mapOf(
-                        "model" to modelId,
-                        "max_tokens" to 1024,
-                        "messages" to messages.map { mapOf("role" to (it["role"] ?: "user"), "content" to (it["content"] ?: "")) }
-                    ))
-                }
-            } else {
-                httpClient().post(url) {
-                    contentType(ContentType.Application.Json)
-                    val auth = resolveAuthHeader(meta, creds)
-                    if (auth != null) {
-                        if (auth.first == "Authorization") bearerAuth(auth.second.removePrefix("Bearer ").trim())
-                        else header(auth.first, auth.second)
-                    } else if (meta.category == "apikey") {
-                        return Result.failure(IllegalStateException("Missing API key for ${meta.id}"))
-                    }
-                    setBody(mapOf(
-                        "model" to modelId,
-                        "messages" to messages.map { mapOf("role" to (it["role"] ?: "user"), "content" to (it["content"] ?: "")) },
-                        "stream" to stream,
-                    ))
-                }
-            }
-            if (!resp.status.isSuccess()) return Result.failure(IllegalStateException("Chat ${resp.status}: ${resp.bodyAsText().take(600)}"))
-            val text = resp.bodyAsText()
-            try {
-                val el = jsonLenient.parseToJsonElement(text)
-                if (el is kotlinx.serialization.json.JsonObject) {
-                    el["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message")?.jsonObject?.get("content")?.let {
-                        return Result.success(it.jsonPrimitive.content)
-                    }
-                    el["content"]?.jsonArray?.firstOrNull()?.jsonObject?.get("text")?.let {
-                        return Result.success(it.jsonPrimitive.content)
-                    }
-                }
-            } catch (_: Exception) { }
-            Result.success(text.take(4000))
+            Result.success(models)
         } catch (e: Exception) {
             Result.failure(e)
         }

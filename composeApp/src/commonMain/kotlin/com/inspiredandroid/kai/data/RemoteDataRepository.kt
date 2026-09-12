@@ -98,6 +98,7 @@ import kotlin.uuid.Uuid
 import com.inspiredandroid.kai.ninerouter.NineRouterEngine
 import com.inspiredandroid.kai.ninerouter.NineRouterRegistry
 import com.inspiredandroid.kai.ninerouter.getNineRouterConfig
+import com.inspiredandroid.kai.ninerouter.lockNineConnectionModel
 
 private const val MAX_TOOL_ITERATIONS = 15
 private const val MIN_TOOL_DISPLAY_MS = 2000L
@@ -427,7 +428,8 @@ class RemoteDataRepository(
                 val cfg = appSettings.getNineRouterConfig()
                 val modelsList = mutableListOf<SettingsModel>()
 
-                for ((providerId, pCreds) in cfg.providers) {
+                val activeProviders = cfg.connections.filter { it.enabled && it.apiKey.isNotBlank() }.map { it.provider }.distinct()
+                for (providerId in activeProviders) {
                     if (!pCreds.enabled || pCreds.apiKey.isBlank()) continue
                     val meta = NineRouterRegistry.find(providerId) ?: continue
                     when (meta.id) {
@@ -809,11 +811,34 @@ class RemoteDataRepository(
     ): AssistantTurn {
         suspend fun <T> call(block: suspend () -> T): T = if (retry) retryApiCall(block) else block()
 
-        val effectiveCredentials = if (service == Service.NineRouter) {
-            NineRouterEngine.resolveTarget(credentials.modelId, credentials, appSettings.getNineRouterConfig()).effectiveCredentials
-        } else {
-            credentials
+        if (service == Service.NineRouter) {
+            val candidates = NineRouterEngine.getAvailableCandidates(credentials.modelId, credentials, appSettings.getNineRouterConfig())
+            var lastEx: Throwable? = null
+            for (candidate in candidates) {
+                try {
+                    val eff = candidate.effectiveCredentials
+                    val openAIMessages = buildOpenAIMessages(service, messages, systemPrompt, eff.modelId, declaredToolNames = emptySet())
+                    val sessionId = activeConversationId()
+                    val response = call {
+                        requests.openAICompatibleChat(service, eff, openAIMessages, sessionId = sessionId, requestTimeoutMs = requestTimeoutMs).getOrThrow()
+                    }
+                    val message = response.choices.firstOrNull()?.message
+                    val content = message?.effectiveContent
+                    if (content == null && strictEmptyResponse) throw OpenAICompatibleEmptyResponseException()
+                    return AssistantTurn(content.orEmpty(), message?.reasoningTraceFor(content))
+                } catch (e: Throwable) {
+                    lastEx = e
+                    if (candidate.isStandalone && candidate.connectionId != null && NineRouterEngine.isFallbackError(e)) {
+                        appSettings.lockNineConnectionModel(candidate.connectionId, candidate.modelPart, 30_000L)
+                        continue
+                    }
+                    throw e
+                }
+            }
+            if (lastEx != null) throw lastEx
         }
+
+        val effectiveCredentials = credentials
 
         return when (service) {
             Service.Gemini -> {

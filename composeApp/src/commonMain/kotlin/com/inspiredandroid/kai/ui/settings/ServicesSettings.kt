@@ -151,10 +151,12 @@ import org.jetbrains.compose.resources.vectorResource
 import sh.calvin.reorderable.ReorderableColumn
 import com.inspiredandroid.kai.data.AppSettings
 import com.inspiredandroid.kai.ninerouter.NineRouterRegistry
-import com.inspiredandroid.kai.ninerouter.NineProviderCredentials
+import com.inspiredandroid.kai.ninerouter.NineConnection
 import com.inspiredandroid.kai.ninerouter.getNineRouterConfig
-import com.inspiredandroid.kai.ninerouter.setNineProviderCredentials
-import com.inspiredandroid.kai.ninerouter.removeNineProvider
+import com.inspiredandroid.kai.ninerouter.addOrUpdateNineConnection
+import com.inspiredandroid.kai.ninerouter.removeNineConnection
+import com.inspiredandroid.kai.ninerouter.importNineConnectionsBulk
+import com.inspiredandroid.kai.ui.components.KaiChip
 import org.koin.compose.koinInject
 import kotlin.math.roundToInt
 
@@ -326,63 +328,233 @@ internal fun ServicesContent(uiState: SettingsUiState, actions: SettingsActions)
     var showAddServiceSheet by remember { mutableStateOf(false) }
     val appSettings: AppSettings = koinInject()
 
-    // 9Router Standalone (tanpa Mido) — kelola 142 provider langsung di HP
+    // 9Router Engine — Multi-account pool & direct connection
     val ninerouterConfig = androidx.compose.runtime.remember { appSettings.getNineRouterConfig() }
-    // Use mutableState for live updates
     var ninerouterConfigState by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(ninerouterConfig) }
     androidx.compose.runtime.LaunchedEffect(Unit) { ninerouterConfigState = appSettings.getNineRouterConfig() }
+    var selectedTab by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+    var selectedId by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    var accountNameDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var apiKeyDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var accountIdDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var bulkImportText by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var importStatusMsg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
 
     androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-        androidx.compose.material3.Card(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), colors = kaiAdaptiveCardColors(), border = kaiAdaptiveCardBorder()) {
-            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.padding(16.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.Text("9Router Standalone (tanpa Mido)", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                androidx.compose.material3.Text("Kelola 142 provider langsung di HP. API Key disimpan di HP, chat langsung ke upstream tanpa lewat Mido. Tetap butuh internet — offline cuma LiteRT.", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                if (ninerouterConfigState.providers.isEmpty()) {
-                    androidx.compose.material3.Text("Belum ada provider.", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                } else {
-                    ninerouterConfigState.providers.entries.forEach { (pid, creds) ->
-                        val meta = NineRouterRegistry.find(pid)
-                        androidx.compose.foundation.layout.Row(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            androidx.compose.foundation.layout.Column {
-                                androidx.compose.material3.Text(meta?.alias ?: pid, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
-                                androidx.compose.material3.Text(if (creds.apiKey.isBlank()) "(key kosong)" else creds.apiKey.take(10)+"…", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+        androidx.compose.material3.Card(
+            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+            colors = kaiAdaptiveCardColors(),
+            border = kaiAdaptiveCardBorder(),
+        ) {
+            androidx.compose.foundation.layout.Column(
+                modifier = androidx.compose.ui.Modifier.padding(16.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+            ) {
+                androidx.compose.foundation.layout.Row(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    androidx.compose.foundation.layout.Column {
+                        androidx.compose.material3.Text("9Router Engine", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                        androidx.compose.material3.Text(
+                            "Multi-akun pool & direct upstream untuk 142 provider",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                androidx.compose.foundation.layout.Row(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                ) {
+                    KaiChip(selected = (selectedTab == 0), onClick = { selectedTab = 0 }) {
+                        androidx.compose.material3.Text("Akun (${ninerouterConfigState.connections.size})", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    }
+                    KaiChip(selected = (selectedTab == 1), onClick = { selectedTab = 1 }) {
+                        androidx.compose.material3.Text("+ Tambah", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    }
+                    KaiChip(selected = (selectedTab == 2), onClick = { selectedTab = 2 }) {
+                        androidx.compose.material3.Text("📋 Bulk Import", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                when (selectedTab) {
+                    0 -> {
+                        if (ninerouterConfigState.connections.isEmpty()) {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                contentAlignment = androidx.compose.ui.Alignment.Center,
+                            ) {
+                                androidx.compose.material3.Text(
+                                    "Belum ada akun tersimpan. Gunakan '+ Tambah' atau 'Bulk Import'.",
+                                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+                                ninerouterConfigState.connections.forEach { conn ->
+                                    val meta = NineRouterRegistry.find(conn.provider)
+                                    val provDisplay = meta?.alias ?: conn.provider
+                                    androidx.compose.material3.Card(
+                                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                        colors = androidx.compose.material3.CardDefaults.cardColors(
+                                            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        ),
+                                    ) {
+                                        androidx.compose.foundation.layout.Row(
+                                            modifier = androidx.compose.ui.Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        ) {
+                                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                                androidx.compose.foundation.layout.Row(
+                                                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                                ) {
+                                                    androidx.compose.material3.Text(provDisplay, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, color = androidx.compose.material3.MaterialTheme.colorScheme.primary)
+                                                    if (conn.name.isNotBlank()) {
+                                                        androidx.compose.material3.Text("• ${conn.name}", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                                                    }
+                                                }
+                                                val maskedKey = if (conn.apiKey.length > 10) conn.apiKey.take(6) + "…" + conn.apiKey.takeLast(4) else "••••••••"
+                                                val detail = if (conn.accountId.isNotBlank()) "$maskedKey (Acc: ${conn.accountId.take(6)}…)" else maskedKey
+                                                androidx.compose.material3.Text(detail, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            androidx.compose.material3.OutlinedButton(
+                                                onClick = {
+                                                    appSettings.removeNineConnection(conn.id)
+                                                    ninerouterConfigState = appSettings.getNineRouterConfig()
+                                                },
+                                                modifier = androidx.compose.ui.Modifier.padding(start = 8.dp),
+                                            ) {
+                                                androidx.compose.material3.Text("Hapus", style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    1 -> {
+                        androidx.compose.material3.Text("Pilih provider:", style = androidx.compose.material3.MaterialTheme.typography.labelSmall, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
+                        ) {
+                            listOf("cloudflare-ai", "openai", "deepseek", "anthropic", "gemini", "groq", "openrouter", "mistral", "qwen", "kimi", "glm", "minimax").forEach { pid ->
+                                KaiChip(selected = (selectedId == pid), onClick = { selectedId = pid }) {
+                                    androidx.compose.material3.Text(pid, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                        androidx.compose.material3.OutlinedTextField(
+                            value = selectedId ?: "",
+                            onValueChange = { selectedId = it },
+                            label = { androidx.compose.material3.Text("Provider ID (mis: cloudflare-ai, openai, deepseek)") },
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        androidx.compose.material3.OutlinedTextField(
+                            value = accountNameDraft,
+                            onValueChange = { accountNameDraft = it },
+                            label = { androidx.compose.material3.Text("Nama Akun / Label (opsional)") },
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        androidx.compose.material3.OutlinedTextField(
+                            value = apiKeyDraft,
+                            onValueChange = { apiKeyDraft = it },
+                            label = { androidx.compose.material3.Text("API Key / Token") },
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        val needAcc = selectedId?.let { NineRouterRegistry.find(it)?.needsAccountId } == true
+                        if (needAcc) {
+                            androidx.compose.material3.OutlinedTextField(
+                                value = accountIdDraft,
+                                onValueChange = { accountIdDraft = it },
+                                label = { androidx.compose.material3.Text("Account ID (Cloudflare 32-char)") },
+                                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                singleLine = true,
+                            )
+                        }
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.material3.Button(
+                                onClick = {
+                                    val pid = selectedId?.trim().orEmpty()
+                                    if (pid.isBlank() || apiKeyDraft.isBlank()) return@Button
+                                    val connId = "conn_" + kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+                                    val newConn = NineConnection(
+                                        id = connId,
+                                        provider = pid,
+                                        name = accountNameDraft.trim(),
+                                        apiKey = apiKeyDraft.trim(),
+                                        accountId = accountIdDraft.trim(),
+                                    )
+                                    appSettings.addOrUpdateNineConnection(newConn)
+                                    ninerouterConfigState = appSettings.getNineRouterConfig()
+                                    selectedId = null
+                                    accountNameDraft = ""
+                                    apiKeyDraft = ""
+                                    accountIdDraft = ""
+                                    selectedTab = 0
+                                },
+                                enabled = (selectedId?.isNotBlank() == true && apiKeyDraft.isNotBlank()),
+                            ) {
+                                androidx.compose.material3.Text("Simpan Akun")
                             }
                             androidx.compose.material3.OutlinedButton(onClick = {
-                                appSettings.removeNineProvider(pid)
-                                ninerouterConfigState = appSettings.getNineRouterConfig()
-                            }) { androidx.compose.material3.Text("Hapus") }
+                                selectedId = null
+                                accountNameDraft = ""
+                                apiKeyDraft = ""
+                                accountIdDraft = ""
+                            }) {
+                                androidx.compose.material3.Text("Reset")
+                            }
+                        }
+                    }
+
+                    2 -> {
+                        androidx.compose.material3.Text(
+                            "Paste daftar akun per baris. Format didukung:\n• provider|name|apiKey\n• provider|name|accountId|apiKey\n• name|email|apiUrl|apiKey",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        androidx.compose.material3.OutlinedTextField(
+                            value = bulkImportText,
+                            onValueChange = { bulkImportText = it },
+                            label = { androidx.compose.material3.Text("Daftar Akun (banyak baris)") },
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            minLines = 4,
+                            maxLines = 8,
+                        )
+                        androidx.compose.foundation.layout.Row(
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.Button(
+                                onClick = {
+                                    if (bulkImportText.isNotBlank()) {
+                                        val count = appSettings.importNineConnectionsBulk(bulkImportText)
+                                        ninerouterConfigState = appSettings.getNineRouterConfig()
+                                        importStatusMsg = "Berhasil mengimpor $count akun!"
+                                        bulkImportText = ""
+                                    }
+                                },
+                                enabled = bulkImportText.isNotBlank(),
+                            ) {
+                                androidx.compose.material3.Text("Import Semua")
+                            }
+                            importStatusMsg?.let { msg ->
+                                androidx.compose.material3.Text(msg, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = androidx.compose.material3.MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
                 }
-                var selectedId by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-                var apiKeyDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
-                var accountIdDraft by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
-                androidx.compose.material3.OutlinedTextField(value = selectedId ?: "", onValueChange = { selectedId = it }, label = { androidx.compose.material3.Text("Provider ID (mis: cloudflare-ai, openai, deepseek)") }, modifier = androidx.compose.ui.Modifier.fillMaxWidth(), singleLine = true)
-                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp), modifier = androidx.compose.ui.Modifier.fillMaxWidth()) {
-                    listOf("cloudflare-ai","openai","deepseek","anthropic","gemini","kimi","glm","qwen","groq","openrouter","minimax","mistral").forEach { pid ->
-                        androidx.compose.material3.AssistChip(onClick = {
-                            selectedId = pid
-                            val existing = ninerouterConfigState.providers[pid]
-                            apiKeyDraft = existing?.apiKey ?: ""
-                            accountIdDraft = existing?.accountId ?: ""
-                        }, label = { androidx.compose.material3.Text(pid) })
-                    }
-                }
-                androidx.compose.material3.OutlinedTextField(value = apiKeyDraft, onValueChange = { apiKeyDraft = it }, label = { androidx.compose.material3.Text("API Key / Token") }, modifier = androidx.compose.ui.Modifier.fillMaxWidth(), singleLine = true)
-                val needAcc = selectedId?.let { NineRouterRegistry.find(it)?.needsAccountId } == true
-                if (needAcc) {
-                    androidx.compose.material3.OutlinedTextField(value = accountIdDraft, onValueChange = { accountIdDraft = it }, label = { androidx.compose.material3.Text("Account ID (Cloudflare)") }, modifier = androidx.compose.ui.Modifier.fillMaxWidth(), singleLine = true)
-                }
-                androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                    androidx.compose.material3.Button(onClick = {
-                        val pid = selectedId?.trim().orEmpty()
-                        if (pid.isBlank() || apiKeyDraft.isBlank()) return@Button
-                        appSettings.setNineProviderCredentials(pid, com.inspiredandroid.kai.ninerouter.NineProviderCredentials(apiKey = apiKeyDraft.trim(), accountId = accountIdDraft.trim()))
-                        ninerouterConfigState = appSettings.getNineRouterConfig()
-                    }, enabled = (selectedId?.isNotBlank() == true && apiKeyDraft.isNotBlank())) { androidx.compose.material3.Text("Tambah / Simpan") }
-                    androidx.compose.material3.OutlinedButton(onClick = { selectedId = null; apiKeyDraft = ""; accountIdDraft = "" }) { androidx.compose.material3.Text("Batal") }
-                }
-                androidx.compose.material3.Text("Total: ${ninerouterConfigState.providers.size} / ${NineRouterRegistry.all.size} tersedia", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
             }
         }
         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(12.dp))
