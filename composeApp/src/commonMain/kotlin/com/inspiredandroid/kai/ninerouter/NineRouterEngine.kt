@@ -584,6 +584,7 @@ object NineRouterEngine {
 
     suspend fun fetchModels(meta: NineProviderMeta, conn: NineConnection): Result<List<String>> {
         val validateUrl = when {
+            meta.id == "opencode" -> "https://opencode.ai/zen/v1/models"
             meta.validateUrl.isNotBlank() -> meta.validateUrl.let {
                 if (meta.needsAccountId) it.replace("{accountId}", conn.accountId.trim()) else it
             }
@@ -601,6 +602,10 @@ object NineRouterEngine {
                     else header(auth.first, auth.second)
                 }
                 if (meta.format == "claude") header("anthropic-version", "2023-06-01")
+                if (meta.id == "opencode") {
+                    header("x-opencode-client", "desktop")
+                    header("x-opencode-session", "ses_${Clock.System.now().toEpochMilliseconds() % 100000}")
+                }
             }
             if (!resp.status.isSuccess()) return Result.failure(IllegalStateException("Failed ${resp.status}"))
             val text = resp.bodyAsText()
@@ -616,5 +621,29 @@ object NineRouterEngine {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /** Free-only subset from live opencode.ai/zen/v1/models (mirrors registry hasFree + passthroughModels) */
+    suspend fun fetchOpencodeFreeModels(): Result<List<Pair<String,String>>> {
+        return try {
+            val resp = httpClient().get("https://opencode.ai/zen/v1/models") {
+                header("x-opencode-client", "desktop")
+                header("x-opencode-session", "ses_${Clock.System.now().toEpochMilliseconds() % 100000}")
+            }
+            if (!resp.status.isSuccess()) return Result.failure(IllegalStateException("Failed ${resp.status}: ${resp.bodyAsText().take(200)}"))
+            val text = resp.bodyAsText()
+            val parsed = jsonLenient.parseToJsonElement(text).jsonObject
+            val data = parsed["data"]?.jsonArray ?: return Result.success(emptyList())
+            val freeIds = data.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.content }
+                .filter { id -> id.endsWith("-free") || id in setOf("muse-spark-1.2", "muse-spark-1.3", "big-pickle") }
+                .distinct()
+            // Normalize to oc/ prefix + display name
+            val pairs = freeIds.map { id ->
+                val full = if (id.startsWith("oc/")) id else "oc/$id"
+                val name = id.replace("-free","").replace("-"," ").replaceFirstChar { it.uppercase() } + " (Free)"
+                full to name
+            }
+            Result.success(pairs)
+        } catch (e: Exception) { Result.failure(e) }
     }
 }

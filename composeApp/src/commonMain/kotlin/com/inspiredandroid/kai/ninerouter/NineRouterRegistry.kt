@@ -210,6 +210,12 @@ object NineRouterRegistry {
     "opencode" -> listOf(
       "oc/muse-spark-1.2-contributor-free" to "Muse Spark 1.2 (Responses)",
       "oc/muse-spark-1.3-contributor-free" to "Muse Spark 1.3 (Responses)",
+      "oc/mimo-v2.5-free" to "MiMo 2.5 Free",
+      "oc/deepseek-v4-flash-free" to "DeepSeek V4 Flash Free",
+      "oc/ling-3.0-flash-fin-free" to "Ling 3.0 Flash Fin Free",
+      "oc/nemotron-3-ultra-free" to "Nemotron 3 Ultra Free",
+      "oc/nemotron-3.5-lightning-free" to "Nemotron 3.5 Lightning Free",
+      "oc/big-pickle" to "Big Pickle (Free)",
       "oc/auto" to "OpenCode Free (Auto)",
     )
     "opencode-go" -> listOf(
@@ -237,6 +243,10 @@ object NineRouterRegistry {
       "ocg/qwen3.6-plus" to "Qwen 3.6 Plus",
       "ocg/hy4-preview" to "Hy4 Preview",
       "ocg/hy3" to "Hy3 True Hybrid Reasoning",
+      "ocg/grok-4.6" to "Grok 4.6 (Responses)",
+      "ocg/gpt-5.6-luna" to "GPT 5.6 Luna (Responses)",
+      "ocg/muse-spark-1.2-contributor" to "Muse Spark 1.2 Contributor (Go)",
+      "ocg/muse-spark-1.3-contributor" to "Muse Spark 1.3 Contributor (Go)",
     )
     "freebuff" -> listOf(
       "fb/auto" to "Freebuff (Auto)",

@@ -1270,12 +1270,63 @@ private fun ProviderDetailSheetContent(
             }
 
             3 -> {
-                // Models Tab (1:1 ModelsCard in 9Router)
+                // Models Tab (1:1 ModelsCard in 9Router) — auto-fetch FREE from live opencode.ai
                 var newModelIdDraft by remember { mutableStateOf("") }
                 var newModelNameDraft by remember { mutableStateOf("") }
                 var modelNotice by remember { mutableStateOf<String?>(null) }
+                var isSyncingFree by remember { mutableStateOf(false) }
+                val scopeModels = rememberCoroutineScope()
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (meta.id == "opencode") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                            border = BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.3f)),
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("🔄 Auto-fetch opencode FREE", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = Color(0xFF1E40AF))
+                                Text("Ambil daftar model FREE langsung dari https://opencode.ai/zen/v1/models (filter -free + big-pickle/muse-spark). Mirip 9Router modelsFetcher.", style = MaterialTheme.typography.labelSmall, color = Color(0xFF1E40AF))
+                                Button(
+                                    onClick = {
+                                        scopeModels.launch {
+                                            isSyncingFree = true
+                                            modelNotice = null
+                                            val res = NineRouterEngine.fetchOpencodeFreeModels()
+                                            if (res.isSuccess) {
+                                                val pairs = res.getOrNull().orEmpty()
+                                                var added = 0
+                                                for ((fid, fname) in pairs) {
+                                                    if (fid !in activeModelItems.map { it.first } && fid !in config.customModels.map { it.id }) {
+                                                        onAddModel(NineCustomModel(id = fid, provider = meta.id, name = fname))
+                                                        added++
+                                                    }
+                                                }
+                                                modelNotice = if (added > 0) "✓ ${added} model FREE baru ditambahkan (${pairs.size} total live -free)" else "✓ Sudah sinkron — ${pairs.size} FREE live, semua sudah ada"
+                                            } else {
+                                                modelNotice = "✗ Gagal fetch: ${res.exceptionOrNull()?.message?.take(120)}"
+                                            }
+                                            isSyncingFree = false
+                                        }
+                                    },
+                                    enabled = !isSyncingFree,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                ) {
+                                    if (isSyncingFree) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
+                                            Text("Syncing FREE...")
+                                        }
+                                    } else {
+                                        Text("🔄 Sync FREE dari opencode.ai (${activeModelItems.size} aktif)")
+                                    }
+                                }
+                                modelNotice?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = if (it.startsWith("✓")) Color(0xFF059669) else MaterialTheme.colorScheme.error) }
+                            }
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
