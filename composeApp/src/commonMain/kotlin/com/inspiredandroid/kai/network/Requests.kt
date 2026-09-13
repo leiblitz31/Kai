@@ -278,6 +278,8 @@ class Requests {
         credentials: ServiceCredentials,
         input: List<JsonObject>,
         tools: List<Tool> = emptyList(),
+        customHeaders: Map<String, String> = emptyMap(),
+        sessionId: String? = null,
         requestTimeoutMs: Long? = null,
     ): Result<OpenAIResponsesResponseDto> = try {
         val apiKey = getApiKeyOrThrow(service, credentials)
@@ -289,6 +291,8 @@ class Requests {
                 applyTimeout(requestTimeoutMs)
                 contentType(ContentType.Application.Json)
                 apiKey?.let { bearerAuth(it) }
+                applySessionHeader(service, sessionId)
+                customHeaders.forEach { (k, v) -> header(k, v) }
                 setBody(
                     OpenAIResponsesRequestDto(
                         input = input,
@@ -461,7 +465,7 @@ class Requests {
     // region Helpers
 
     private fun resolveUrl(service: Service, credentials: ServiceCredentials, path: String): String = if (service == Service.OpenAICompatible || service == Service.NineRouter) {
-        if (credentials.baseUrl.endsWith("/chat/completions") || credentials.baseUrl.endsWith("/messages")) {
+        if (credentials.baseUrl.endsWith("/chat/completions") || credentials.baseUrl.endsWith("/messages") || credentials.baseUrl.endsWith("/responses") || credentials.baseUrl.endsWith("/v1/responses")) {
             credentials.baseUrl
         } else {
             val defaultBase = if (service == Service.NineRouter) Service.DEFAULT_NINEROUTER_BASE_URL else Service.DEFAULT_OPENAI_COMPATIBLE_BASE_URL

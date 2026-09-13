@@ -53,6 +53,15 @@ data class NineCustomModel(
 )
 
 @Serializable
+data class NineProxyPool(
+    val id: String,
+    val proxyUrl: String = "", // http://user:pass@host:port or socks5://
+    val name: String = "",
+    val isActive: Boolean = true,
+    val noProxy: String = "",
+)
+
+@Serializable
 data class NineRouterConfig(
     val connections: List<NineConnection> = emptyList(),
     val combos: List<NineCombo> = emptyList(),
@@ -60,6 +69,7 @@ data class NineRouterConfig(
     val deletedProviderIds: Set<String> = emptySet(),
     val customModels: List<NineCustomModel> = emptyList(),
     val deletedModelIds: Set<String> = emptySet(),
+    val proxyPools: List<NineProxyPool> = emptyList(),
     // Token-saver pipeline (mirrors 9Router endpoint settings; all fail-open).
     val rtkEnabled: Boolean = true,
     val cavemanEnabled: Boolean = false,
@@ -183,6 +193,20 @@ fun AppSettings.restoreAllProviders() {
 fun AppSettings.restoreAllModels() {
     val cur = getNineRouterConfig()
     setNineRouterConfig(cur.copy(deletedModelIds = emptySet()))
+}
+
+fun AppSettings.getNineProxyPools(): List<NineProxyPool> = getNineRouterConfig().proxyPools
+fun AppSettings.addNineProxyPool(pool: NineProxyPool) {
+    val cur = getNineRouterConfig()
+    setNineRouterConfig(cur.copy(proxyPools = cur.proxyPools.filterNot { it.id == pool.id } + pool))
+}
+fun AppSettings.removeNineProxyPool(poolId: String) {
+    val cur = getNineRouterConfig()
+    setNineRouterConfig(cur.copy(proxyPools = cur.proxyPools.filterNot { it.id == poolId }))
+}
+fun AppSettings.toggleNineProxyPool(poolId: String, active: Boolean) {
+    val cur = getNineRouterConfig()
+    setNineRouterConfig(cur.copy(proxyPools = cur.proxyPools.map { if (it.id == poolId) it.copy(isActive = active) else it }))
 }
 
 fun AppSettings.importNineConnectionsBulk(text: String): Int {

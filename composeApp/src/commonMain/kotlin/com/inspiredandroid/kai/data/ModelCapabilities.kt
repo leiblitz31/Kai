@@ -127,6 +127,7 @@ internal fun supportsAgenticFlows(serviceId: String, modelId: String): Boolean =
  */
 internal val RESPONSES_API_MODELS = listOf(
     "gpt-5.6",
+    "muse-spark",
 )
 
 /**
@@ -140,8 +141,9 @@ internal val RESPONSES_API_MODELS = listOf(
  */
 internal fun requiresResponsesApi(service: Service, modelId: String, baseUrl: String = ""): Boolean {
     if (service.responsesUrl == null) return false
+    val id = modelId.substringAfterLast('/').lowercase()
+    if (id.startsWith("muse-spark")) return true
     val isOpenAiEndpoint = service == Service.OpenAI || baseUrl.contains("api.openai.com", ignoreCase = true)
     if (!isOpenAiEndpoint) return false
-    val id = modelId.substringAfterLast('/').lowercase()
     return RESPONSES_API_MODELS.any { id.startsWith(it) }
 }

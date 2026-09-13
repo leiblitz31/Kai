@@ -48,6 +48,13 @@ object NineRouterEngine {
     // Providers that work without any key/token (mirrors 9Router noAuth entries).
     private val NO_AUTH_PROVIDERS = setOf("opencode")
 
+    // Muse Spark models go to /responses, everything else to /chat/completions (mirrors opencode.js)
+    private val SPARK_MODELS = setOf("muse-spark-1.2-contributor-free", "muse-spark-1.3-contributor-free")
+    private fun isSparkModel(modelPart: String): Boolean {
+        val base = modelPart.substringAfter("/").substringBefore("(").trim().lowercase()
+        return base in SPARK_MODELS || base.startsWith("muse-spark")
+    }
+
     // ── Combo expansion ────────────────────────────────────────────────
     /** Expand a combo name/id into its ordered model list, or null if not a combo. */
     fun resolveComboModels(rawModelId: String, config: NineRouterConfig): List<String>? {
@@ -130,6 +137,39 @@ object NineRouterEngine {
             emptyList()
         }
 
+        // NO_AUTH providers (opencode) must work even with zero stored connections (mirrors registry noAuth:true)
+        if (matching.isEmpty() && meta != null && meta.id in NO_AUTH_PROVIDERS) {
+            val upstreamModelNoAuth = if (meta.id == "cloudflare-ai") {
+                if (modelPart.startsWith("@cf/")) modelPart else "@cf/$modelPart"
+            } else {
+                modelPart
+            }
+            val isSparkNoAuth = meta.id == "opencode" && isSparkModel("$providerKey/$modelPart")
+            val baseNoAuth = when {
+                meta.id == "opencode" && isSparkNoAuth -> "https://opencode.ai/zen/v1/responses"
+                meta.id == "opencode" -> "https://opencode.ai/zen/v1/chat/completions"
+                else -> meta.baseUrl
+            }
+            val headersNoAuth = mutableMapOf<String, String>()
+            if (meta.id == "opencode") {
+                headersNoAuth["x-opencode-client"] = "desktop"
+                // x-opencode-session is injected per-conversation in Requests.kt for Service.OpenCode;
+                // for NineRouter opencode we mirror it here with a stable per-app session
+                headersNoAuth["x-opencode-session"] = "ses_${Clock.System.now().toEpochMilliseconds()}"
+            }
+            if (meta.format == "claude") headersNoAuth["anthropic-version"] = "2023-06-01"
+            return listOf(
+                NineRouterCandidate(
+                    connectionId = null,
+                    effectiveCredentials = ServiceCredentials(apiKey = "", modelId = upstreamModelNoAuth, baseUrl = baseNoAuth),
+                    meta = meta,
+                    modelPart = modelPart,
+                    isStandalone = true,
+                    customHeaders = headersNoAuth,
+                )
+            )
+        }
+
         if (matching.isNotEmpty()) {
             val available = matching.filter { conn: NineConnection ->
                 val lockModel: Long = conn.modelLocks[modelPart] ?: 0L
@@ -142,7 +182,7 @@ object NineRouterEngine {
                 lockTime
             }
 
-            val upstreamModel = if (meta?.id == "cloudflare-ai") {
+            val upstreamModel = if (meta!!.id == "cloudflare-ai") {
                 if (modelPart.startsWith("@cf/")) modelPart else "@cf/$modelPart"
             } else {
                 modelPart
@@ -158,13 +198,21 @@ object NineRouterEngine {
             }
 
             return orderedPool.map { conn ->
-                var base = meta?.baseUrl ?: ""
-                if (meta?.needsAccountId == true) {
+                var base = when {
+                    meta!!.id == "opencode" && isSparkModel("$providerKey/$modelPart") -> "https://opencode.ai/zen/v1/responses"
+                    meta!!.id == "opencode" -> "https://opencode.ai/zen/v1/chat/completions"
+                    else -> meta!!.baseUrl ?: ""
+                }
+                if (meta!!.needsAccountId == true) {
                     base = base.replace("{accountId}", conn.accountId.trim())
                 }
 
                 val customHeaders = mutableMapOf<String, String>()
-                if (meta?.format == "claude") {
+                if (meta!!.id == "opencode") {
+                    customHeaders["x-opencode-client"] = "desktop"
+                    customHeaders["x-opencode-session"] = "ses_${conn.id.hashCode()}_${Clock.System.now().toEpochMilliseconds() % 100000}"
+                }
+                if (meta!!.format == "claude") {
                     customHeaders["anthropic-version"] = "2023-06-01"
                     effectiveKey(conn)?.let { customHeaders["x-api-key"] = it }
                 }

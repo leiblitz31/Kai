@@ -537,6 +537,7 @@ sealed class Service(
         defaultModel = null,
         settingsKeyPrefix = "ninerouter",
         chatUrl = "/chat/completions",
+        responsesUrl = "/responses",
         modelsUrl = "/models",
         sortModelsById = true,
         apiKeyUrl = "https://github.com/decolua/9router",

@@ -1128,7 +1128,7 @@ class RemoteDataRepository(
         val useResponsesApi = requiresResponsesApi(service, eff.modelId, eff.baseUrl)
         if (useResponsesApi) {
             val response = retryApiCall {
-                requests.openAIResponses(service, eff, toResponsesInput(msgs), tools).getOrThrow()
+                requests.openAIResponses(service, eff, toResponsesInput(msgs), tools, customHeaders = headers, sessionId = activeConversationId()).getOrThrow()
             }
             response.throwIfFailed(service)
             val text = response.outputText

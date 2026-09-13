@@ -164,7 +164,7 @@ fun NineRouterDashboard(
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                             ) {
                                 Text(
-                                    text = "v4.0.0 Native",
+                                    text = "v4.1.1 Native",
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
@@ -263,6 +263,9 @@ fun NineRouterDashboard(
                         Text("⚡ Token Saver", style = MaterialTheme.typography.labelMedium)
                     }
                     KaiChip(selected = (activeSubTab == 3), onClick = { activeSubTab = 3 }) {
+                        Text("🌐 Proxy Pool", style = MaterialTheme.typography.labelMedium)
+                    }
+                    KaiChip(selected = (activeSubTab == 4), onClick = { activeSubTab = 4 }) {
                         Text("💾 Backup & Import", style = MaterialTheme.typography.labelMedium)
                     }
                 }
@@ -326,6 +329,23 @@ fun NineRouterDashboard(
                 )
             }
             3 -> {
+                ProxyPoolSubTab(
+                    config = config,
+                    onAddPool = { pool ->
+                        appSettings.addNineProxyPool(pool)
+                        config = appSettings.getNineRouterConfig()
+                    },
+                    onTogglePool = { id, active ->
+                        appSettings.toggleNineProxyPool(id, active)
+                        config = appSettings.getNineRouterConfig()
+                    },
+                    onDeletePool = { id ->
+                        appSettings.removeNineProxyPool(id)
+                        config = appSettings.getNineRouterConfig()
+                    },
+                )
+            }
+            4 -> {
                 BackupImportSubTab(
                     appSettings = appSettings,
                     onConfigChanged = { config = appSettings.getNineRouterConfig() },
@@ -1109,7 +1129,19 @@ private fun ProviderDetailSheetContent(
 
             1 -> {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (isOAuth) {
+                    if (meta.baseUrl.isBlank()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f)),
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("⚠️ Provider OAuth — standalone direct tidak tersedia", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = Color(0xFF92400E))
+                                Text("Provider ini butuh browser OAuth. Di Kai standalone: login di perangkat lain (9Router server / web), lalu paste Access Token di bawah. Tanpa token, model ${meta.alias}/... akan Model not found.", style = MaterialTheme.typography.labelSmall, color = Color(0xFF92400E))
+                            }
+                        }
+                    } else if (isOAuth) {
                         Text(
                             "Provider OAuth: login di browser perangkat lain lalu paste Access Token di bawah.",
                             style = MaterialTheme.typography.bodySmall,
@@ -1623,6 +1655,98 @@ private fun TokenSaverSubTab(
                     checked = config.ponytailEnabled,
                     onCheckedChange = { onUpdateConfig(config.copy(ponytailEnabled = it)) },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProxyPoolSubTab(
+    config: NineRouterConfig,
+    onAddPool: (NineProxyPool) -> Unit,
+    onTogglePool: (String, Boolean) -> Unit,
+    onDeletePool: (String) -> Unit,
+) {
+    var proxyUrlDraft by remember { mutableStateOf("") }
+    var nameDraft by remember { mutableStateOf("") }
+    var notice by remember { mutableStateOf<String?>(null) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = kaiAdaptiveCardColors(),
+            border = kaiAdaptiveCardBorder(),
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("🌐 Proxy Pool Global (Outbound Proxy)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                Text("Mirip 9Router web Settings → Proxy Pools (src/lib/db/repos/proxyPoolsRepo.js). Semua request outbound akan round-robin lewat pool aktif. Format: http://user:pass@host:port atau socks5://...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F9FF)),
+                    border = BorderStroke(1.dp, Color(0xFFD8B4FE).copy(alpha = 0.4f)),
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("ℹ️ Relay vs Proxy Pool — bedanya:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color(0xFF6B21A8))
+                        Text("• Relay per-akun (x-relay-target) = bypass per provider, set di card provider → Akun\n• Proxy Pool global = semua request lewat proxy ini (http/socks5), kayak 9Router outboundProxy.js", style = MaterialTheme.typography.labelSmall, color = Color(0xFF6B21A8))
+                    }
+                }
+                OutlinedTextField(
+                    value = nameDraft,
+                    onValueChange = { nameDraft = it },
+                    label = { Text("Nama Pool (opsional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                )
+                OutlinedTextField(
+                    value = proxyUrlDraft,
+                    onValueChange = { proxyUrlDraft = it.trim(); notice = null },
+                    label = { Text("Proxy URL — http://user:pass@host:port") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                )
+                Button(
+                    onClick = {
+                        val url = proxyUrlDraft.trim()
+                        if (url.isBlank()) { notice = "Proxy URL kosong"; return@Button }
+                        val ok = url.startsWith("http://") || url.startsWith("https://") || url.startsWith("socks5://") || url.startsWith("socks4://")
+                        if (!ok) { notice = "Harus http:// / https:// / socks5://"; return@Button }
+                        onAddPool(NineProxyPool(id = "pool_" + Clock.System.now().toEpochMilliseconds(), proxyUrl = url, name = nameDraft.trim(), isActive = true))
+                        proxyUrlDraft = ""; nameDraft = ""; notice = "✓ Pool ditambahkan!"
+                    },
+                    enabled = proxyUrlDraft.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                ) { Text("+ Tambah Proxy Pool") }
+                notice?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = if (it.startsWith("✓")) Color(0xFF10B981) else MaterialTheme.colorScheme.error) }
+            }
+        }
+        if (config.proxyPools.isNotEmpty()) {
+            config.proxyPools.forEach { pool ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = kaiAdaptiveCardColors(),
+                    border = kaiAdaptiveCardBorder(),
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(if (pool.name.isNotBlank()) pool.name else pool.proxyUrl, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                            Text(pool.proxyUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Switch(checked = pool.isActive, onCheckedChange = { onTogglePool(pool.id, it) })
+                            OutlinedButton(onClick = { onDeletePool(pool.id) }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) { Text("Hapus", style = MaterialTheme.typography.labelSmall) }
+                        }
+                    }
+                }
+            }
+        } else {
+            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                Text("Belum ada proxy pool. Tambahkan di atas — akan dipakai round-robin untuk semua outbound.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

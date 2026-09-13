@@ -208,7 +208,35 @@ object NineRouterRegistry {
       "openrouter/deepseek/deepseek-r1:free" to "OpenRouter DeepSeek R1 (free)",
     )
     "opencode" -> listOf(
+      "oc/muse-spark-1.2-contributor-free" to "Muse Spark 1.2 (Responses)",
+      "oc/muse-spark-1.3-contributor-free" to "Muse Spark 1.3 (Responses)",
       "oc/auto" to "OpenCode Free (Auto)",
+    )
+    "opencode-go" -> listOf(
+      "ocg/deepseek-flash" to "DeepSeek V4.1 Flash",
+      "ocg/glm-5.3-flash" to "GLM 5.3 Flash (Vision)",
+      "ocg/glm-5.3" to "GLM 5.3",
+      "ocg/glm-5.2" to "GLM 5.2",
+      "ocg/glm-5.1" to "GLM 5.1",
+      "ocg/kimi-k2.7-code" to "Kimi K2.7 Code",
+      "ocg/kimi-k2.6" to "Kimi K2.6",
+      "ocg/kimi-k3" to "Kimi K3",
+      "ocg/deepseek-v4-pro" to "DeepSeek V4 Pro",
+      "ocg/deepseek-v4-flash" to "DeepSeek V4 Flash",
+      "ocg/deepseek-v4-flash-vision-exp" to "DeepSeek V4 Flash Vision (Exp)",
+      "ocg/longcat-2.0" to "LongCat 2.0",
+      "ocg/mimo-v2.5" to "MiMo V2.5",
+      "ocg/mimo-v2.5-pro" to "MiMo V2.5 Pro",
+      "ocg/minimax-m3" to "MiniMax M3",
+      "ocg/minimax-m2.7" to "MiniMax M2.7",
+      "ocg/minimax-m2.5" to "MiniMax M2.5",
+      "ocg/qwen3.8-max" to "Qwen 3.8 Max",
+      "ocg/qwen3.8-flash" to "Qwen 3.8 Flash",
+      "ocg/qwen3.7-max" to "Qwen 3.7 Max",
+      "ocg/qwen3.7-plus" to "Qwen 3.7 Plus",
+      "ocg/qwen3.6-plus" to "Qwen 3.6 Plus",
+      "ocg/hy4-preview" to "Hy4 Preview",
+      "ocg/hy3" to "Hy3 True Hybrid Reasoning",
     )
     "freebuff" -> listOf(
       "fb/auto" to "Freebuff (Auto)",
