@@ -8,6 +8,8 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
 import kotlin.time.Clock
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -54,6 +56,17 @@ object NineRouterEngine {
         val base = modelPart.substringAfter("/").substringBefore("(").trim().lowercase()
         return base in SPARK_MODELS || base.startsWith("muse-spark")
     }
+
+    @OptIn(ExperimentalUuidApi::class)
+    private fun genOpencodeSession(): String = "ses_" + Uuid.random().toString().replace("-","")
+
+    private fun opencodeHeaders(session: String = genOpencodeSession()): MutableMap<String,String> = mutableMapOf(
+        "x-opencode-client" to "desktop",
+        "x-opencode-session" to session,
+        "Origin" to "https://opencode.ai",
+        "Referer" to "https://opencode.ai/",
+        "Accept" to "application/json",
+    )
 
     // ── Combo expansion ────────────────────────────────────────────────
     /** Expand a combo name/id into its ordered model list, or null if not a combo. */
@@ -150,13 +163,7 @@ object NineRouterEngine {
                 meta.id == "opencode" -> "https://opencode.ai/zen/v1/chat/completions"
                 else -> meta.baseUrl
             }
-            val headersNoAuth = mutableMapOf<String, String>()
-            if (meta.id == "opencode") {
-                headersNoAuth["x-opencode-client"] = "desktop"
-                // x-opencode-session is injected per-conversation in Requests.kt for Service.OpenCode;
-                // for NineRouter opencode we mirror it here with a stable per-app session
-                headersNoAuth["x-opencode-session"] = "ses_${Clock.System.now().toEpochMilliseconds()}"
-            }
+            val headersNoAuth = if (meta.id == "opencode") opencodeHeaders() else mutableMapOf()
             if (meta.format == "claude") headersNoAuth["anthropic-version"] = "2023-06-01"
             return listOf(
                 NineRouterCandidate(
@@ -207,11 +214,7 @@ object NineRouterEngine {
                     base = base.replace("{accountId}", conn.accountId.trim())
                 }
 
-                val customHeaders = mutableMapOf<String, String>()
-                if (meta!!.id == "opencode") {
-                    customHeaders["x-opencode-client"] = "desktop"
-                    customHeaders["x-opencode-session"] = "ses_${conn.id.hashCode()}_${Clock.System.now().toEpochMilliseconds() % 100000}"
-                }
+                val customHeaders = if (meta!!.id == "opencode") opencodeHeaders() else mutableMapOf()
                 if (meta!!.format == "claude") {
                     customHeaders["anthropic-version"] = "2023-06-01"
                     effectiveKey(conn)?.let { customHeaders["x-api-key"] = it }
@@ -476,7 +479,12 @@ object NineRouterEngine {
         val start = Clock.System.now().toEpochMilliseconds()
         if (meta.id == "opencode") {
             return try {
-                val resp = httpClient().get("https://opencode.ai/zen/v1/models")
+                val resp = httpClient().get("https://opencode.ai/zen/v1/models") {
+                    header("x-opencode-client", "desktop")
+                    header("x-opencode-session", genOpencodeSession())
+                    header("Origin", "https://opencode.ai")
+                    header("Referer", "https://opencode.ai/")
+                }
                 val latency = Clock.System.now().toEpochMilliseconds() - start
                 if (resp.status.isSuccess()) {
                     NineValidationResult(true, latency, "Active (${latency}ms)", resp.status.value)
@@ -604,7 +612,10 @@ object NineRouterEngine {
                 if (meta.format == "claude") header("anthropic-version", "2023-06-01")
                 if (meta.id == "opencode") {
                     header("x-opencode-client", "desktop")
-                    header("x-opencode-session", "ses_${Clock.System.now().toEpochMilliseconds() % 100000}")
+                    header("x-opencode-session", genOpencodeSession())
+                    header("Origin", "https://opencode.ai")
+                    header("Referer", "https://opencode.ai/")
+                    header("Accept", "application/json")
                 }
             }
             if (!resp.status.isSuccess()) return Result.failure(IllegalStateException("Failed ${resp.status}"))
@@ -628,7 +639,10 @@ object NineRouterEngine {
         return try {
             val resp = httpClient().get("https://opencode.ai/zen/v1/models") {
                 header("x-opencode-client", "desktop")
-                header("x-opencode-session", "ses_${Clock.System.now().toEpochMilliseconds() % 100000}")
+                header("x-opencode-session", genOpencodeSession())
+                header("Origin", "https://opencode.ai")
+                header("Referer", "https://opencode.ai/")
+                header("Accept", "application/json")
             }
             if (!resp.status.isSuccess()) return Result.failure(IllegalStateException("Failed ${resp.status}: ${resp.bodyAsText().take(200)}"))
             val text = resp.bodyAsText()
