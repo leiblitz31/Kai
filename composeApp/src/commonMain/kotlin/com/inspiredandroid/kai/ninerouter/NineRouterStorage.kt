@@ -232,12 +232,29 @@ fun AppSettings.importNineConnectionsBulk(text: String): Int {
     return count
 }
 
+data class NineParsedBackup(
+    val connections: List<NineConnection> = emptyList(),
+    val combos: List<NineCombo> = emptyList(),
+    val customProviders: List<NineProviderMeta> = emptyList(),
+    val deletedProviderIds: Set<String> = emptySet(),
+    val customModels: List<NineCustomModel> = emptyList(),
+    val deletedModelIds: Set<String> = emptySet(),
+)
+
 fun parseNineRouterJson(raw: String): Pair<List<NineConnection>, List<NineCombo>>? {
+    return parseNineRouterJsonFull(raw)?.let { it.connections to it.combos }
+}
+
+fun parseNineRouterJsonFull(raw: String): NineParsedBackup? {
     val json = Json { ignoreUnknownKeys = true; isLenient = true }
     return try {
         val root = json.parseToJsonElement(raw.trim())
         val conns = mutableListOf<NineConnection>()
         val combos = mutableListOf<NineCombo>()
+        val customProviders = mutableListOf<NineProviderMeta>()
+        val deletedProviderIds = mutableSetOf<String>()
+        val customModels = mutableListOf<NineCustomModel>()
+        val deletedModelIds = mutableSetOf<String>()
         val now = Clock.System.now().toEpochMilliseconds()
 
         if (root is kotlinx.serialization.json.JsonObject) {
@@ -332,6 +349,19 @@ fun parseNineRouterJson(raw: String): Pair<List<NineConnection>, List<NineCombo>
                     }
                 }
             }
+            // Parse Kai extensions: customProviders / deletedProviderIds / customModels / deletedModelIds
+            obj["customProviders"]?.jsonArray?.forEach { elem ->
+                try { customProviders.add(json.decodeFromJsonElement<NineProviderMeta>(elem)) } catch (_: Exception) {}
+            }
+            obj["deletedProviderIds"]?.jsonArray?.forEach { elem ->
+                try { deletedProviderIds.add(elem.jsonPrimitive.content) } catch (_: Exception) {}
+            }
+            obj["customModels"]?.jsonArray?.forEach { elem ->
+                try { customModels.add(json.decodeFromJsonElement<NineCustomModel>(elem)) } catch (_: Exception) {}
+            }
+            obj["deletedModelIds"]?.jsonArray?.forEach { elem ->
+                try { deletedModelIds.add(elem.jsonPrimitive.content) } catch (_: Exception) {}
+            }
         } else if (root is kotlinx.serialization.json.JsonArray) {
             // Array of connections
             root.jsonArray.forEachIndexed { i, elem ->
@@ -364,7 +394,15 @@ fun parseNineRouterJson(raw: String): Pair<List<NineConnection>, List<NineCombo>
             }
         }
 
-        if (conns.isNotEmpty() || combos.isNotEmpty()) Pair(conns, combos) else null
+        val hasAny = conns.isNotEmpty() || combos.isNotEmpty() || customProviders.isNotEmpty() || deletedProviderIds.isNotEmpty() || customModels.isNotEmpty() || deletedModelIds.isNotEmpty()
+        if (hasAny) NineParsedBackup(
+            connections = conns,
+            combos = combos,
+            customProviders = customProviders,
+            deletedProviderIds = deletedProviderIds,
+            customModels = customModels,
+            deletedModelIds = deletedModelIds,
+        ) else null
     } catch (_: Exception) {
         null
     }
@@ -374,10 +412,11 @@ fun AppSettings.importNineRouterConfig(raw: String, replaceAll: Boolean = false)
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return NineImportResult(0, 0, false, "Input teks/file kosong")
 
-    // Try parsing as JSON (9Router backup or Kai export)
-    val parsedJson = parseNineRouterJson(trimmed)
-    if (parsedJson != null) {
-        val (conns, combos) = parsedJson
+    // Try parsing as JSON (9Router backup or Kai export) — full Kai round-trip via parseNineRouterJsonFull
+    val parsed = parseNineRouterJsonFull(trimmed)
+    if (parsed != null && (parsed.connections.isNotEmpty() || parsed.combos.isNotEmpty() || parsed.customProviders.isNotEmpty() || parsed.customModels.isNotEmpty() || parsed.deletedProviderIds.isNotEmpty() || parsed.deletedModelIds.isNotEmpty())) {
+        val conns = parsed.connections
+        val combos = parsed.combos
         val cur = getNineRouterConfig()
         val finalConns = if (replaceAll) conns else (cur.connections.filterNot { existing ->
             conns.any { it.id == existing.id || (it.provider == existing.provider && it.name == existing.name && it.name.isNotBlank()) }
@@ -387,7 +426,25 @@ fun AppSettings.importNineRouterConfig(raw: String, replaceAll: Boolean = false)
             combos.any { it.name.equals(existing.name, ignoreCase = true) }
         } + combos)
 
-        setNineRouterConfig(cur.copy(connections = finalConns, combos = finalCombos))
+        val finalCustomProviders = if (replaceAll) parsed.customProviders else {
+            val byId = (cur.customProviders + parsed.customProviders).groupBy { it.id }
+            byId.values.map { it.last() }
+        }
+        val finalDeletedProviderIds = if (replaceAll) parsed.deletedProviderIds else cur.deletedProviderIds + parsed.deletedProviderIds
+        val finalCustomModels = if (replaceAll) parsed.customModels else {
+            val byId = (cur.customModels + parsed.customModels).groupBy { it.id }
+            byId.values.map { it.last() }
+        }
+        val finalDeletedModelIds = if (replaceAll) parsed.deletedModelIds else cur.deletedModelIds + parsed.deletedModelIds
+
+        setNineRouterConfig(cur.copy(
+            connections = finalConns,
+            combos = finalCombos,
+            customProviders = finalCustomProviders,
+            deletedProviderIds = finalDeletedProviderIds,
+            customModels = finalCustomModels,
+            deletedModelIds = finalDeletedModelIds,
+        ))
         return NineImportResult(
             connectionsCount = conns.size,
             combosCount = combos.size,
@@ -415,6 +472,10 @@ fun AppSettings.exportNineRouterBackupJson(): String {
     val exportObj = buildJsonObject {
         put("connections", jsonLenient.encodeToJsonElement(config.connections))
         put("combos", jsonLenient.encodeToJsonElement(config.combos))
+        put("customProviders", jsonLenient.encodeToJsonElement(config.customProviders))
+        put("deletedProviderIds", jsonLenient.encodeToJsonElement(config.deletedProviderIds.toList()))
+        put("customModels", jsonLenient.encodeToJsonElement(config.customModels))
+        put("deletedModelIds", jsonLenient.encodeToJsonElement(config.deletedModelIds.toList()))
         put("providerConnections", buildJsonArray {
             config.connections.forEach { conn ->
                 add(buildJsonObject {
