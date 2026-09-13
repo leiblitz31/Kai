@@ -164,7 +164,7 @@ fun NineRouterDashboard(
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                             ) {
                                 Text(
-                                    text = "v4.1.3 Native",
+                                    text = "v4.1.4 Native",
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
