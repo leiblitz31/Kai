@@ -1226,7 +1226,7 @@ class RemoteDataRepository(
                         try {
                             val eff = candidate.effectiveCredentials
                             val msgs = trimMessagesForContext(buildOpenAIMessages(service, nineHistory, nineSystem, eff.modelId, declaredToolNames), contextWindowTokens)
-                            return nineChatTurn(eff, msgs, candidate.customHeaders, tools)
+                            return nineChatTurn(service, eff, msgs, candidate.customHeaders, tools)
                         } catch (e: Throwable) {
                             lastEx = e
                             if (candidate.isStandalone && candidate.connectionId != null && NineRouterEngine.isFallbackError(e)) {

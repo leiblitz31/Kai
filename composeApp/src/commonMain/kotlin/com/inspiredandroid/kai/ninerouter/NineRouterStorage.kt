@@ -11,7 +11,7 @@ data class NineConnection(
     val id: String,
     val provider: String,
     val name: String = "",
-    val apiKey: *** = "",
+    val apiKey: String = "",
     val accountId: String = "",
     // Optional relay (Vercel/Cloudflare worker) to bypass IP rate limits.
     // When set, requests POST to relayUrl with x-relay-target/x-relay-path headers.
