@@ -13,6 +13,13 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+data class NineValidationResult(
+    val success: Boolean,
+    val latencyMs: Long,
+    val message: String,
+    val statusCode: Int? = null,
+)
+
 data class NineRouterCandidate(
     val connectionId: String?,
     val effectiveCredentials: ServiceCredentials,
@@ -414,6 +421,88 @@ object NineRouterEngine {
         return when (meta.format) {
             "claude" -> "x-api-key" to key
             else -> "Authorization" to "Bearer $key"
+        }
+    }
+
+    suspend fun pingConnection(meta: NineProviderMeta, conn: NineConnection): NineValidationResult {
+        val start = Clock.System.now().toEpochMilliseconds()
+        if (meta.id == "opencode") {
+            return try {
+                val resp = httpClient().get("https://opencode.ai/zen/v1/models")
+                val latency = Clock.System.now().toEpochMilliseconds() - start
+                if (resp.status.isSuccess()) {
+                    NineValidationResult(true, latency, "Active (${latency}ms)", resp.status.value)
+                } else {
+                    NineValidationResult(false, latency, "Status ${resp.status.value}", resp.status.value)
+                }
+            } catch (e: Exception) {
+                val latency = Clock.System.now().toEpochMilliseconds() - start
+                NineValidationResult(false, latency, e.message?.take(50) ?: "Error", null)
+            }
+        }
+
+        val url = when {
+            meta.validateUrl.isNotBlank() -> {
+                var u = meta.validateUrl
+                if (meta.needsAccountId) u = u.replace("{accountId}", conn.accountId.trim())
+                u
+            }
+            meta.baseUrl.isNotBlank() -> {
+                var base = resolveBaseUrl(meta, conn)
+                if (base.contains("/chat/completions")) base.replace("/chat/completions", "/models")
+                else if (base.contains("/messages")) base.replace("/messages", "/models")
+                else base
+            }
+            else -> return NineValidationResult(false, 0L, "No validate URL for ${meta.id}", null)
+        }
+
+        return try {
+            val relay = conn.relayUrl.trim().removeSuffix("/")
+            val resp = if (relay.isNotEmpty()) {
+                val targetHost = if (url.contains("://")) {
+                    val proto = url.substringBefore("://") + "://"
+                    val rest = url.substringAfter("://")
+                    proto + rest.substringBefore("/")
+                } else url
+                val targetPath = "/" + url.substringAfter("://", url).substringAfter("/", "").trimStart('/')
+                httpClient().get(relay) {
+                    header("x-relay-target", targetHost)
+                    header("x-relay-path", targetPath)
+                    val auth = resolveAuthHeader(meta, conn)
+                    if (auth != null) {
+                        if (auth.first == "Authorization") bearerAuth(auth.second.removePrefix("Bearer ").trim())
+                        else header(auth.first, auth.second)
+                    }
+                    if (meta.format == "claude") header("anthropic-version", "2023-06-01")
+                }
+            } else {
+                httpClient().get(url) {
+                    val auth = resolveAuthHeader(meta, conn)
+                    if (auth != null) {
+                        if (auth.first == "Authorization") bearerAuth(auth.second.removePrefix("Bearer ").trim())
+                        else header(auth.first, auth.second)
+                    }
+                    if (meta.format == "claude") header("anthropic-version", "2023-06-01")
+                }
+            }
+
+            val latency = Clock.System.now().toEpochMilliseconds() - start
+            if (resp.status.isSuccess()) {
+                NineValidationResult(true, latency, "Active (${latency}ms)", resp.status.value)
+            } else {
+                val code = resp.status.value
+                val hint = when (code) {
+                    401 -> "401 Invalid Key"
+                    403 -> "403 Forbidden"
+                    429 -> "429 Rate Limit"
+                    404 -> "404 Not Found"
+                    else -> "Status $code"
+                }
+                NineValidationResult(false, latency, "$hint (${latency}ms)", code)
+            }
+        } catch (e: Exception) {
+            val latency = Clock.System.now().toEpochMilliseconds() - start
+            NineValidationResult(false, latency, e.message?.take(50) ?: "Error", null)
         }
     }
 

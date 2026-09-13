@@ -145,3 +145,16 @@ fun AppSettings.importNineConnectionsBulk(text: String): Int {
     }
     return count
 }
+
+fun AppSettings.toggleNineConnection(connectionId: String, enabled: Boolean) {
+    val cur = getNineRouterConfig()
+    val updated = cur.connections.map {
+        if (it.id == connectionId) it.copy(enabled = enabled) else it
+    }
+    setNineRouterConfig(cur.copy(connections = updated))
+}
+
+fun AppSettings.removeNineCombo(comboId: String) {
+    val cur = getNineRouterConfig()
+    setNineRouterConfig(cur.copy(combos = cur.combos.filterNot { it.id == comboId }))
+}

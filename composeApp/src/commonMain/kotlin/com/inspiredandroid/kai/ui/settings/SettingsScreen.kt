@@ -250,7 +250,7 @@ fun SettingsScreenContent(
                     Spacer(Modifier.height(16.dp))
 
                     val maxContentWidth = when (filteredUiState.currentTab) {
-                        SettingsTab.Services -> 500.dp
+                        SettingsTab.Services, SettingsTab.NineRouter -> 600.dp
                         else -> 900.dp
                     }
                     Column(
@@ -262,12 +262,16 @@ fun SettingsScreenContent(
                                 GeneralContent(uiState = filteredUiState, actions = actions)
                             }
 
-                            SettingsTab.Agent -> {
-                                AgentContent(uiState = filteredUiState, actions = actions)
+                            SettingsTab.NineRouter -> {
+                                com.inspiredandroid.kai.ninerouter.NineRouterDashboard()
                             }
 
                             SettingsTab.Services -> {
                                 ServicesContent(uiState = filteredUiState, actions = actions)
+                            }
+
+                            SettingsTab.Agent -> {
+                                AgentContent(uiState = filteredUiState, actions = actions)
                             }
 
                             SettingsTab.Integrations -> {
@@ -411,8 +415,9 @@ private fun SettingsTabSelector(
                     Text(
                         text = when (tab) {
                             SettingsTab.General -> stringResource(Res.string.settings_tab_general)
-                            SettingsTab.Agent -> stringResource(Res.string.settings_tab_agent)
+                            SettingsTab.NineRouter -> "9Router"
                             SettingsTab.Services -> stringResource(Res.string.settings_tab_services)
+                            SettingsTab.Agent -> stringResource(Res.string.settings_tab_agent)
                             SettingsTab.Tools -> stringResource(Res.string.settings_tab_tools)
                             SettingsTab.Sandbox -> stringResource(Res.string.settings_tab_sandbox)
                             SettingsTab.Integrations -> stringResource(Res.string.settings_tab_integrations)

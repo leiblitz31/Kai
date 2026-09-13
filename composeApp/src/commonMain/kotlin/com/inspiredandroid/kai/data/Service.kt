@@ -557,7 +557,7 @@ sealed class Service(
         val all: List<Service> get() = listOf(Free, AtlasCloud, Gemini, Anthropic, OpenAI, DeepSeek, Mistral, XAI, OpenRouter, Groq, Nvidia, Cerebras, OllamaCloud, LongCat, Together, HuggingFace, Venice, Moonshot, Zai, ZaiCodingPlan, Minimax, AiHubMix, DeepInfra, FireworksAI, OpenCode, PublicAI, AIHorde, Perplexity, OpenAICompatible, NineRouter, LiteRT)
 
         const val DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "http://localhost:11434/v1"
-        const val DEFAULT_NINEROUTER_BASE_URL = "http://localhost:20128/v1"
+        const val DEFAULT_NINEROUTER_BASE_URL = ""
 
         fun fromId(id: String): Service = all.find { it.id == id } ?: Free
     }

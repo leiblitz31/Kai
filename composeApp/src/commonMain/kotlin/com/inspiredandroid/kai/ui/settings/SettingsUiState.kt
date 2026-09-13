@@ -53,8 +53,9 @@ enum class ConnectionStatus {
 
 enum class SettingsTab {
     General,
-    Agent,
+    NineRouter,
     Services,
+    Agent,
     Tools,
     Sandbox,
     Integrations,
