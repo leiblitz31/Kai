@@ -45,6 +45,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inspiredandroid.kai.data.AppSettings
+import androidx.compose.material3.Checkbox
+import com.inspiredandroid.kai.saveFileToDevice
+import com.inspiredandroid.kai.ui.rememberCopyToClipboard
+import io.github.vinceglb.filekit.dialogs.FileKitType
+import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
+import io.github.vinceglb.filekit.readBytes
 import com.inspiredandroid.kai.ui.components.KaiChip
 import com.inspiredandroid.kai.ui.handCursor
 import com.inspiredandroid.kai.ui.kaiAdaptiveCardBorder
@@ -141,7 +147,7 @@ fun NineRouterDashboard(
                         Text("⚡ Token Saver", style = MaterialTheme.typography.labelMedium)
                     }
                     KaiChip(selected = (activeSubTab == 3), onClick = { activeSubTab = 3 }) {
-                        Text("📋 Bulk Import", style = MaterialTheme.typography.labelMedium)
+                        Text("💾 Backup & Import", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -196,12 +202,9 @@ fun NineRouterDashboard(
                 )
             }
             3 -> {
-                BulkImportSubTab(
-                    onImport = { text ->
-                        val count = appSettings.importNineConnectionsBulk(text)
-                        config = appSettings.getNineRouterConfig()
-                        count
-                    },
+                BackupImportSubTab(
+                    appSettings = appSettings,
+                    onConfigChanged = { config = appSettings.getNineRouterConfig() },
                 )
             }
         }
@@ -952,53 +955,189 @@ private fun TokenSaverSubTab(
 }
 
 @Composable
-private fun BulkImportSubTab(
-    onImport: (String) -> Int,
+private fun BackupImportSubTab(
+    appSettings: AppSettings,
+    onConfigChanged: () -> Unit,
 ) {
-    var text by remember { mutableStateOf("") }
-    var resultMsg by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val copyToClipboard = rememberCopyToClipboard()
+    var rawText by remember { mutableStateOf("") }
+    var replaceAll by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var isError by remember { mutableStateOf(false) }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = kaiAdaptiveCardColors(),
-        border = kaiAdaptiveCardBorder(),
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Universal Bulk Import", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "Paste daftar akun dari file harvest atau backup. Format yang didukung:\n" +
-                    "• provider|name|apiKey\n" +
-                    "• provider|name|accountId|apiKey (Cloudflare)\n" +
-                    "• name|email|apiUrl|apiKey (Format Harvest 9Router)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text("Paste baris akun di sini...") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 6,
-                maxLines = 12,
-            )
-
-            Button(
-                onClick = {
-                    if (text.isNotBlank()) {
-                        val count = onImport(text)
-                        resultMsg = "Sukses mengimpor $count akun ke pool!"
-                        text = ""
+    val filePickerLauncher = rememberFilePickerLauncher(
+        type = FileKitType.File(extensions = listOf("json", "txt")),
+    ) { file ->
+        if (file != null) {
+            scope.launch {
+                try {
+                    val bytes = file.readBytes()
+                    val text = bytes.decodeToString()
+                    val result = appSettings.importNineRouterConfig(text, replaceAll)
+                    statusMessage = result.message
+                    isError = !result.isSuccess
+                    if (result.isSuccess) {
+                        onConfigChanged()
                     }
-                },
-                enabled = text.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Import Semua Akun ke Pool")
+                } catch (e: Exception) {
+                    statusMessage = "Gagal membaca file: ${e.message}"
+                    isError = true
+                }
             }
+        }
+    }
 
-            resultMsg?.let {
-                Text(it, fontWeight = FontWeight.SemiBold, color = Color(0xFF10B981), style = MaterialTheme.typography.bodySmall)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Card 1: Import Backup
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = kaiAdaptiveCardColors(),
+            border = kaiAdaptiveCardBorder(),
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("📥 Import Config / Backup 9Router", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Impor file backup database 9Router (9router-backup-*.json) atau format baris panen. Mendukung file JSON backup resmi 9Router, format pool akun, dan combo.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = { filePickerLauncher.launch() },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("📂 Pilih File Backup (.json / .txt)")
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Checkbox(
+                        checked = replaceAll,
+                        onCheckedChange = { replaceAll = it },
+                    )
+                    Text(
+                        text = "Timpa seluruh data yang ada (Replace All)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Text(
+                    "Atau paste teks / JSON langsung di bawah ini:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                OutlinedTextField(
+                    value = rawText,
+                    onValueChange = { rawText = it },
+                    label = { Text("Paste JSON Backup 9Router atau baris akun di sini...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 4,
+                    maxLines = 8,
+                )
+
+                Button(
+                    onClick = {
+                        if (rawText.isNotBlank()) {
+                            val result = appSettings.importNineRouterConfig(rawText, replaceAll)
+                            statusMessage = result.message
+                            isError = !result.isSuccess
+                            if (result.isSuccess) {
+                                onConfigChanged()
+                                rawText = ""
+                            }
+                        }
+                    },
+                    enabled = rawText.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Import dari Teks / JSON")
+                }
+
+                statusMessage?.let { msg ->
+                    val color = if (isError) MaterialTheme.colorScheme.error else Color(0xFF10B981)
+                    Text(
+                        text = msg,
+                        fontWeight = FontWeight.SemiBold,
+                        color = color,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+
+        // Card 2: Export Backup
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = kaiAdaptiveCardColors(),
+            border = kaiAdaptiveCardBorder(),
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("📤 Export Backup 9Router", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Ekspor seluruh akun, combo, dan konfigurasi token saver ke format JSON resmi 9Router. File hasil ekspor kompatibel 100% dengan dashboard web 9Router.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                var exportNotice by remember { mutableStateOf<String?>(null) }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val jsonString = appSettings.exportNineRouterBackupJson()
+                                    val stamp = Clock.System.now().toEpochMilliseconds()
+                                    saveFileToDevice(
+                                        jsonString.encodeToByteArray(),
+                                        "9router-backup-$stamp",
+                                        "json",
+                                    )
+                                    copyToClipboard(jsonString)
+                                    exportNotice = "✓ File berhasil disimpan & disalin ke clipboard!"
+                                } catch (e: Exception) {
+                                    exportNotice = "Gagal menyimpan file: ${e.message}"
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Simpan File Backup (.json)")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val jsonString = appSettings.exportNineRouterBackupJson()
+                            copyToClipboard(jsonString)
+                            exportNotice = "✓ JSON berhasil disalin ke clipboard!"
+                        },
+                    ) {
+                        Text("Salin JSON")
+                    }
+                }
+
+                exportNotice?.let { notice ->
+                    Text(
+                        text = notice,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF10B981),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
     }

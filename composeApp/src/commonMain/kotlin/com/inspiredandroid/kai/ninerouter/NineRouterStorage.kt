@@ -5,6 +5,16 @@ import kotlin.time.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 @Serializable
 data class NineConnection(
@@ -46,8 +56,16 @@ data class NineRouterConfig(
     val ponytailLevel: String = "full",
 )
 
+@Serializable
+data class NineImportResult(
+    val connectionsCount: Int = 0,
+    val combosCount: Int = 0,
+    val isSuccess: Boolean = true,
+    val message: String = "",
+)
+
 private const val KEY_NINEROUTER_CONFIG = "ninerouter_config_json"
-private val jsonLenient = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+private val jsonLenient = Json { ignoreUnknownKeys = true; encodeDefaults = true; isLenient = true; prettyPrint = true }
 
 fun AppSettings.getNineRouterConfig(): NineRouterConfig {
     val raw = settings.getString(KEY_NINEROUTER_CONFIG, "")
@@ -76,6 +94,14 @@ fun AppSettings.removeNineConnection(connectionId: String) {
     setNineRouterConfig(cur.copy(connections = cur.connections.filterNot { it.id == connectionId }))
 }
 
+fun AppSettings.toggleNineConnection(connectionId: String, enabled: Boolean) {
+    val cur = getNineRouterConfig()
+    val updated = cur.connections.map {
+        if (it.id == connectionId) it.copy(enabled = enabled) else it
+    }
+    setNineRouterConfig(cur.copy(connections = updated))
+}
+
 fun AppSettings.lockNineConnectionModel(connectionId: String, model: String, cooldownMs: Long) {
     val cur = getNineRouterConfig()
     val now = Clock.System.now().toEpochMilliseconds()
@@ -96,6 +122,11 @@ fun AppSettings.getNineCombos(): List<NineCombo> = getNineRouterConfig().combos
 fun AppSettings.setNineCombos(combos: List<NineCombo>) {
     val cur = getNineRouterConfig()
     setNineRouterConfig(cur.copy(combos = combos))
+}
+
+fun AppSettings.removeNineCombo(comboId: String) {
+    val cur = getNineRouterConfig()
+    setNineRouterConfig(cur.copy(combos = cur.combos.filterNot { it.id == comboId }))
 }
 
 fun AppSettings.importNineConnectionsBulk(text: String): Int {
@@ -146,15 +177,214 @@ fun AppSettings.importNineConnectionsBulk(text: String): Int {
     return count
 }
 
-fun AppSettings.toggleNineConnection(connectionId: String, enabled: Boolean) {
-    val cur = getNineRouterConfig()
-    val updated = cur.connections.map {
-        if (it.id == connectionId) it.copy(enabled = enabled) else it
+fun parseNineRouterJson(raw: String): Pair<List<NineConnection>, List<NineCombo>>? {
+    val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    return try {
+        val root = json.parseToJsonElement(raw.trim())
+        val conns = mutableListOf<NineConnection>()
+        val combos = mutableListOf<NineCombo>()
+        val now = Clock.System.now().toEpochMilliseconds()
+
+        if (root is kotlinx.serialization.json.JsonObject) {
+            val obj = root.jsonObject
+            // 1. Check if 9Router backup format (has providerConnections)
+            val pcArray = obj["providerConnections"]?.jsonArray
+            if (pcArray != null) {
+                pcArray.forEachIndexed { i, elem ->
+                    val c = elem.jsonObject
+                    val id = c["id"]?.jsonPrimitive?.content ?: ("conn_${now}_$i")
+                    val provider = c["provider"]?.jsonPrimitive?.content ?: "openai"
+                    val name = c["name"]?.jsonPrimitive?.content
+                        ?: c["displayName"]?.jsonPrimitive?.content
+                        ?: c["email"]?.jsonPrimitive?.content
+                        ?: ""
+                    val apiKey = c["apiKey"]?.jsonPrimitive?.content
+                        ?: c["token"]?.jsonPrimitive?.content
+                        ?: ""
+                    val psd = c["providerSpecificData"]?.jsonObject
+                    val accountId = psd?.get("accountId")?.jsonPrimitive?.content
+                        ?: c["accountId"]?.jsonPrimitive?.content
+                        ?: ""
+                    val relayUrl = psd?.get("vercelRelayUrl")?.jsonPrimitive?.content
+                        ?: psd?.get("connectionProxyUrl")?.jsonPrimitive?.content
+                        ?: c["relayUrl"]?.jsonPrimitive?.content
+                        ?: ""
+                    val accessToken = c["accessToken"]?.jsonPrimitive?.content ?: ""
+                    val refreshToken = c["refreshToken"]?.jsonPrimitive?.content ?: ""
+                    val priority = c["priority"]?.jsonPrimitive?.intOrNull ?: 1
+                    val enabled = c["isActive"]?.jsonPrimitive?.booleanOrNull
+                        ?: c["enabled"]?.jsonPrimitive?.booleanOrNull
+                        ?: true
+
+                    conns.add(
+                        NineConnection(
+                            id = id,
+                            provider = provider,
+                            name = name,
+                            apiKey = apiKey,
+                            accountId = accountId,
+                            relayUrl = relayUrl,
+                            accessToken = accessToken,
+                            refreshToken = refreshToken,
+                            priority = priority,
+                            enabled = enabled,
+                        )
+                    )
+                }
+            } else if (obj["connections"]?.jsonArray != null) {
+                // Kai format
+                val connArray = obj["connections"]!!.jsonArray
+                connArray.forEachIndexed { i, elem ->
+                    val c = elem.jsonObject
+                    val id = c["id"]?.jsonPrimitive?.content ?: ("conn_${now}_$i")
+                    val provider = c["provider"]?.jsonPrimitive?.content ?: "openai"
+                    val name = c["name"]?.jsonPrimitive?.content ?: ""
+                    val apiKey = c["apiKey"]?.jsonPrimitive?.content ?: ""
+                    val accountId = c["accountId"]?.jsonPrimitive?.content ?: ""
+                    val relayUrl = c["relayUrl"]?.jsonPrimitive?.content ?: ""
+                    val accessToken = c["accessToken"]?.jsonPrimitive?.content ?: ""
+                    val refreshToken = c["refreshToken"]?.jsonPrimitive?.content ?: ""
+                    val priority = c["priority"]?.jsonPrimitive?.intOrNull ?: 1
+                    val enabled = c["enabled"]?.jsonPrimitive?.booleanOrNull ?: true
+
+                    conns.add(
+                        NineConnection(
+                            id = id,
+                            provider = provider,
+                            name = name,
+                            apiKey = apiKey,
+                            accountId = accountId,
+                            relayUrl = relayUrl,
+                            accessToken = accessToken,
+                            refreshToken = refreshToken,
+                            priority = priority,
+                            enabled = enabled,
+                        )
+                    )
+                }
+            }
+
+            // Parse combos if present
+            val comboArray = obj["combos"]?.jsonArray
+            if (comboArray != null) {
+                comboArray.forEachIndexed { i, elem ->
+                    val cb = elem.jsonObject
+                    val id = cb["id"]?.jsonPrimitive?.content ?: ("combo_${now}_$i")
+                    val name = cb["name"]?.jsonPrimitive?.content ?: "Combo $i"
+                    val models = cb["models"]?.jsonArray?.mapNotNull { it.jsonPrimitive.content } ?: emptyList()
+                    if (models.isNotEmpty()) {
+                        combos.add(NineCombo(id = id, name = name, models = models))
+                    }
+                }
+            }
+        } else if (root is kotlinx.serialization.json.JsonArray) {
+            // Array of connections
+            root.jsonArray.forEachIndexed { i, elem ->
+                val c = elem.jsonObject
+                val id = c["id"]?.jsonPrimitive?.content ?: ("conn_${now}_$i")
+                val provider = c["provider"]?.jsonPrimitive?.content ?: "openai"
+                val name = c["name"]?.jsonPrimitive?.content ?: ""
+                val apiKey = c["apiKey"]?.jsonPrimitive?.content ?: ""
+                val accountId = c["accountId"]?.jsonPrimitive?.content ?: ""
+                val relayUrl = c["relayUrl"]?.jsonPrimitive?.content ?: ""
+                val accessToken = c["accessToken"]?.jsonPrimitive?.content ?: ""
+                val refreshToken = c["refreshToken"]?.jsonPrimitive?.content ?: ""
+                val priority = c["priority"]?.jsonPrimitive?.intOrNull ?: 1
+                val enabled = c["enabled"]?.jsonPrimitive?.booleanOrNull ?: true
+
+                conns.add(
+                    NineConnection(
+                        id = id,
+                        provider = provider,
+                        name = name,
+                        apiKey = apiKey,
+                        accountId = accountId,
+                        relayUrl = relayUrl,
+                        accessToken = accessToken,
+                        refreshToken = refreshToken,
+                        priority = priority,
+                        enabled = enabled,
+                    )
+                )
+            }
+        }
+
+        if (conns.isNotEmpty() || combos.isNotEmpty()) Pair(conns, combos) else null
+    } catch (_: Exception) {
+        null
     }
-    setNineRouterConfig(cur.copy(connections = updated))
 }
 
-fun AppSettings.removeNineCombo(comboId: String) {
-    val cur = getNineRouterConfig()
-    setNineRouterConfig(cur.copy(combos = cur.combos.filterNot { it.id == comboId }))
+fun AppSettings.importNineRouterConfig(raw: String, replaceAll: Boolean = false): NineImportResult {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return NineImportResult(0, 0, false, "Input teks/file kosong")
+
+    // Try parsing as JSON (9Router backup or Kai export)
+    val parsedJson = parseNineRouterJson(trimmed)
+    if (parsedJson != null) {
+        val (conns, combos) = parsedJson
+        val cur = getNineRouterConfig()
+        val finalConns = if (replaceAll) conns else (cur.connections.filterNot { existing ->
+            conns.any { it.id == existing.id || (it.provider == existing.provider && it.name == existing.name && it.name.isNotBlank()) }
+        } + conns)
+
+        val finalCombos = if (replaceAll) combos else (cur.combos.filterNot { existing ->
+            combos.any { it.name.equals(existing.name, ignoreCase = true) }
+        } + combos)
+
+        setNineRouterConfig(cur.copy(connections = finalConns, combos = finalCombos))
+        return NineImportResult(
+            connectionsCount = conns.size,
+            combosCount = combos.size,
+            isSuccess = true,
+            message = "Sukses mengimpor ${conns.size} akun dan ${combos.size} combo!",
+        )
+    }
+
+    // Fallback: line-by-line (pipe/harvest format)
+    val count = importNineConnectionsBulk(trimmed)
+    return if (count > 0) {
+        NineImportResult(
+            connectionsCount = count,
+            combosCount = 0,
+            isSuccess = true,
+            message = "Sukses mengimpor $count akun dari baris teks!",
+        )
+    } else {
+        NineImportResult(0, 0, false, "Format tidak valid. Gunakan JSON backup 9Router atau baris teks akun.")
+    }
+}
+
+fun AppSettings.exportNineRouterBackupJson(): String {
+    val config = getNineRouterConfig()
+    val exportObj = buildJsonObject {
+        put("connections", jsonLenient.encodeToJsonElement(config.connections))
+        put("combos", jsonLenient.encodeToJsonElement(config.combos))
+        put("providerConnections", buildJsonArray {
+            config.connections.forEach { conn ->
+                add(buildJsonObject {
+                    put("id", conn.id)
+                    put("provider", conn.provider)
+                    put("name", conn.name)
+                    put("apiKey", conn.apiKey)
+                    put("accessToken", conn.accessToken)
+                    put("refreshToken", conn.refreshToken)
+                    put("priority", conn.priority)
+                    put("isActive", conn.enabled)
+                    if (conn.accountId.isNotBlank() || conn.relayUrl.isNotBlank()) {
+                        put("providerSpecificData", buildJsonObject {
+                            if (conn.accountId.isNotBlank()) put("accountId", conn.accountId)
+                            if (conn.relayUrl.isNotBlank()) put("vercelRelayUrl", conn.relayUrl)
+                        })
+                    }
+                })
+            }
+        })
+        put("settings", buildJsonObject {
+            put("rtkEnabled", config.rtkEnabled)
+            put("cavemanEnabled", config.cavemanEnabled)
+            put("ponytailEnabled", config.ponytailEnabled)
+        })
+    }
+    return jsonLenient.encodeToString(exportObj)
 }
