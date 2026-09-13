@@ -430,47 +430,27 @@ class RemoteDataRepository(
 
                 // User-defined combos first (selectable by combo name).
                 for (combo in cfg.combos) {
-                    modelsList.add(SettingsModel(id = combo.name, subtitle = "Combo: ${combo.models.size} model"))
+                    if (combo.name !in cfg.deletedModelIds && combo.id !in cfg.deletedModelIds) {
+                        modelsList.add(SettingsModel(id = combo.name, subtitle = "Combo: ${combo.models.size} model"))
+                    }
                 }
 
                 val activeProviders = cfg.connections.filter { it.enabled && (it.apiKey.isNotBlank() || it.accessToken.isNotBlank() || it.provider.equals("opencode", ignoreCase = true)) }.map { it.provider }.distinct()
                 for (providerId in activeProviders) {
-                    val meta = NineRouterRegistry.find(providerId) ?: continue
-                    when (meta.id) {
-                        "cloudflare-ai" -> {
-                            modelsList.add(SettingsModel(id = "cf/@cf/meta/llama-3.2-1b-instruct", subtitle = "Cloudflare Llama 3.2 1B"))
-                            modelsList.add(SettingsModel(id = "cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast", subtitle = "Cloudflare Llama 3.3 70B"))
-                            modelsList.add(SettingsModel(id = "cf/@cf/qwen/qwen2.5-coder-32b-instruct", subtitle = "Cloudflare Qwen 2.5 Coder"))
-                            modelsList.add(SettingsModel(id = "cf/@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", subtitle = "Cloudflare R1 Distill Qwen"))
+                    val meta = NineRouterRegistry.find(providerId, cfg) ?: continue
+                    val provModels = NineRouterRegistry.getDefaultModelsForProvider(meta.id)
+                    for ((mId, mName) in provModels) {
+                        if (mId !in cfg.deletedModelIds) {
+                            modelsList.add(SettingsModel(id = mId, subtitle = mName))
                         }
-                        "deepseek" -> {
-                            modelsList.add(SettingsModel(id = "deepseek/deepseek-chat", subtitle = "DeepSeek Chat (V3)"))
-                            modelsList.add(SettingsModel(id = "deepseek/deepseek-reasoner", subtitle = "DeepSeek Reasoner (R1)"))
-                        }
-                        "openai" -> {
-                            modelsList.add(SettingsModel(id = "openai/gpt-4o", subtitle = "OpenAI GPT-4o"))
-                            modelsList.add(SettingsModel(id = "openai/gpt-4o-mini", subtitle = "OpenAI GPT-4o Mini"))
-                        }
-                        "groq" -> {
-                            modelsList.add(SettingsModel(id = "groq/llama-3.3-70b-versatile", subtitle = "Groq Llama 3.3 70B"))
-                        }
-                        "openrouter" -> {
-                            modelsList.add(SettingsModel(id = "openrouter/auto", subtitle = "OpenRouter Auto"))
-                            modelsList.add(SettingsModel(id = "openrouter/meta-llama/llama-3.2-3b-instruct:free", subtitle = "OpenRouter Llama 3.2 3B (free)"))
-                            modelsList.add(SettingsModel(id = "openrouter/deepseek/deepseek-r1:free", subtitle = "OpenRouter DeepSeek R1 (free)"))
-                        }
-                        "opencode" -> {
-                            modelsList.add(SettingsModel(id = "oc/auto", subtitle = "OpenCode Free (tanpa auth)"))
-                        }
-                        "freebuff" -> {
-                            modelsList.add(SettingsModel(id = "fb/auto", subtitle = "Freebuff (free)"))
-                        }
-                        "gemini" -> {
-                            modelsList.add(SettingsModel(id = "gemini/gemini-2.0-flash", subtitle = "Gemini Flash (free tier)"))
-                        }
-                        else -> {
-                            modelsList.add(SettingsModel(id = "${meta.alias}/default", subtitle = "${meta.id} (default)"))
-                        }
+                    }
+                }
+
+                // Custom models added by user
+                for (cm in cfg.customModels) {
+                    if (cm.id !in cfg.deletedModelIds) {
+                        val sub = if (cm.name.isNotBlank()) cm.name else "${cm.provider} custom model"
+                        modelsList.add(SettingsModel(id = cm.id, subtitle = sub))
                     }
                 }
 
@@ -484,10 +464,13 @@ class RemoteDataRepository(
                     "Hermini" to "Combo Hermini",
                 )
                 for ((id, name) in presets) {
-                    modelsList.add(SettingsModel(id = id, subtitle = name))
+                    if (id !in cfg.deletedModelIds) {
+                        modelsList.add(SettingsModel(id = id, subtitle = name))
+                    }
                 }
 
-                updateModelsForInstance(instanceId, modelsList.distinctBy { it.id }, service)
+                val finalModels = modelsList.filterNot { it.id in cfg.deletedModelIds }.distinctBy { it.id }
+                updateModelsForInstance(instanceId, finalModels, service)
             }
 
             Service.LiteRT -> {

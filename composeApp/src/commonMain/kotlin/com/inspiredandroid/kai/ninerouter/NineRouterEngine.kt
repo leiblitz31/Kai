@@ -107,7 +107,7 @@ object NineRouterEngine {
         }
 
         val meta = if (providerKey != null) {
-            NineRouterRegistry.find(providerKey) ?: NineRouterRegistry.find(providerKey.lowercase())
+            NineRouterRegistry.find(providerKey, config) ?: NineRouterRegistry.find(providerKey.lowercase(), config)
         } else null
 
         // Providers without a direct HTTP endpoint (OAuth-only executors such as

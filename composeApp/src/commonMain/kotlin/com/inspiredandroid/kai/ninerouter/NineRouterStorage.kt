@@ -45,9 +45,20 @@ data class NineCombo(
 )
 
 @Serializable
+data class NineCustomModel(
+    val id: String,
+    val provider: String,
+    val name: String = "",
+)
+
+@Serializable
 data class NineRouterConfig(
     val connections: List<NineConnection> = emptyList(),
     val combos: List<NineCombo> = emptyList(),
+    val customProviders: List<NineProviderMeta> = emptyList(),
+    val deletedProviderIds: Set<String> = emptySet(),
+    val customModels: List<NineCustomModel> = emptyList(),
+    val deletedModelIds: Set<String> = emptySet(),
     // Token-saver pipeline (mirrors 9Router endpoint settings; all fail-open).
     val rtkEnabled: Boolean = true,
     val cavemanEnabled: Boolean = false,
@@ -127,6 +138,50 @@ fun AppSettings.setNineCombos(combos: List<NineCombo>) {
 fun AppSettings.removeNineCombo(comboId: String) {
     val cur = getNineRouterConfig()
     setNineRouterConfig(cur.copy(combos = cur.combos.filterNot { it.id == comboId }))
+}
+
+fun AppSettings.addCustomProvider(meta: NineProviderMeta) {
+    val cur = getNineRouterConfig()
+    val updated = cur.customProviders.filterNot { it.id == meta.id } + meta.copy(isCustom = true)
+    setNineRouterConfig(cur.copy(customProviders = updated, deletedProviderIds = cur.deletedProviderIds - meta.id))
+}
+
+fun AppSettings.removeProvider(providerId: String) {
+    val cur = getNineRouterConfig()
+    val isCustom = cur.customProviders.any { it.id == providerId }
+    val updatedCustom = cur.customProviders.filterNot { it.id == providerId }
+    val updatedDeleted = if (!isCustom) cur.deletedProviderIds + providerId else cur.deletedProviderIds
+    val updatedConns = cur.connections.filterNot { it.provider.equals(providerId, ignoreCase = true) }
+    setNineRouterConfig(cur.copy(
+        customProviders = updatedCustom,
+        deletedProviderIds = updatedDeleted,
+        connections = updatedConns,
+    ))
+}
+
+fun AppSettings.addCustomModel(model: NineCustomModel) {
+    val cur = getNineRouterConfig()
+    val updated = cur.customModels.filterNot { it.id == model.id } + model
+    setNineRouterConfig(cur.copy(customModels = updated, deletedModelIds = cur.deletedModelIds - model.id))
+}
+
+fun AppSettings.removeModel(modelId: String) {
+    val cur = getNineRouterConfig()
+    val updatedCustom = cur.customModels.filterNot { it.id == modelId }
+    setNineRouterConfig(cur.copy(
+        customModels = updatedCustom,
+        deletedModelIds = cur.deletedModelIds + modelId,
+    ))
+}
+
+fun AppSettings.restoreAllProviders() {
+    val cur = getNineRouterConfig()
+    setNineRouterConfig(cur.copy(deletedProviderIds = emptySet()))
+}
+
+fun AppSettings.restoreAllModels() {
+    val cur = getNineRouterConfig()
+    setNineRouterConfig(cur.copy(deletedModelIds = emptySet()))
 }
 
 fun AppSettings.importNineConnectionsBulk(text: String): Int {

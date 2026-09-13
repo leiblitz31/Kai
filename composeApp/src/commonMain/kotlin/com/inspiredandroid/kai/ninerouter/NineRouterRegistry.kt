@@ -1,18 +1,23 @@
 package com.inspiredandroid.kai.ninerouter
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class NineProviderMeta(
   val id: String,
   val alias: String,
-  val aliases: List<String>,
-  val baseUrl: String,
-  val validateUrl: String,
-  val category: String,
-  val needsAccountId: Boolean,
-  val format: String,
+  val aliases: List<String> = emptyList(),
+  val baseUrl: String = "",
+  val validateUrl: String = "",
+  val category: String = "apikey",
+  val needsAccountId: Boolean = false,
+  val format: String = "openai",
+  val displayName: String = "",
+  val isCustom: Boolean = false,
 )
 
 object NineRouterRegistry {
-  val all: List<NineProviderMeta> = listOf(
+  val allBuiltIn: List<NineProviderMeta> = listOf(
     NineProviderMeta("a6api","a6api",listOf(),"https://a6api.com/v1/chat/completions","https://a6api.com/v1/models","apikey",false,"openai"),
     NineProviderMeta("agentrouter","agentrouter",listOf(),"https://agentrouter.org/v1/messages","","freeTier",false,"claude"),
     NineProviderMeta("alibaba","ali",listOf(),"https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions","https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models","apikey",false,"openai"),
@@ -156,8 +161,89 @@ object NineRouterRegistry {
     NineProviderMeta("zed","zd",listOf(),"https://cloud.zed.dev/completions","","oauth",false,"openai"),
     NineProviderMeta("zenmux","zenmux",listOf(),"https://zenmux.ai/v1/chat/completions","https://zenmux.ai/v1/models","apikey",false,"openai"),
   )
-  private val byId = all.associateBy { it.id }
-  private val byAlias = buildMap { for (p in all) { put(p.alias, p); for (a in p.aliases) put(a, p) } }
-  fun find(idOrAlias: String): NineProviderMeta? = byId[idOrAlias] ?: byAlias[idOrAlias]
+  val all: List<NineProviderMeta> get() = allBuiltIn
+  private val byId = allBuiltIn.associateBy { it.id }
+  private val byAlias = buildMap { for (p in allBuiltIn) { put(p.alias, p); for (a in p.aliases) put(a, p) } }
+
+  fun getAll(config: NineRouterConfig): List<NineProviderMeta> {
+    val builtIn = allBuiltIn.filterNot { it.id in config.deletedProviderIds }
+    return builtIn + config.customProviders
+  }
+
+  fun find(idOrAlias: String, config: NineRouterConfig? = null): NineProviderMeta? {
+    if (config != null) {
+      val custom = config.customProviders.firstOrNull {
+        it.id.equals(idOrAlias, ignoreCase = true) || it.alias.equals(idOrAlias, ignoreCase = true)
+      }
+      if (custom != null) return custom
+      if (idOrAlias in config.deletedProviderIds) return null
+    }
+    return byId[idOrAlias] ?: byAlias[idOrAlias]
+  }
+
+  fun find(idOrAlias: String): NineProviderMeta? = find(idOrAlias, null)
   fun findByModelPrefix(prefix: String): NineProviderMeta? = find(prefix)
+
+  fun getDefaultModelsForProvider(providerId: String): List<Pair<String, String>> = when (providerId) {
+    "cloudflare-ai" -> listOf(
+      "cf/@cf/meta/llama-3.2-1b-instruct" to "Cloudflare Llama 3.2 1B",
+      "cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast" to "Cloudflare Llama 3.3 70B",
+      "cf/@cf/qwen/qwen2.5-coder-32b-instruct" to "Cloudflare Qwen 2.5 Coder",
+      "cf/@cf/deepseek-ai/deepseek-r1-distill-qwen-32b" to "Cloudflare R1 Distill Qwen",
+    )
+    "deepseek" -> listOf(
+      "deepseek/deepseek-chat" to "DeepSeek Chat (V3)",
+      "deepseek/deepseek-reasoner" to "DeepSeek Reasoner (R1)",
+    )
+    "openai" -> listOf(
+      "openai/gpt-4o" to "OpenAI GPT-4o",
+      "openai/gpt-4o-mini" to "OpenAI GPT-4o Mini",
+    )
+    "groq" -> listOf(
+      "groq/llama-3.3-70b-versatile" to "Groq Llama 3.3 70B",
+    )
+    "openrouter" -> listOf(
+      "openrouter/auto" to "OpenRouter Auto",
+      "openrouter/meta-llama/llama-3.2-3b-instruct:free" to "OpenRouter Llama 3.2 3B (free)",
+      "openrouter/deepseek/deepseek-r1:free" to "OpenRouter DeepSeek R1 (free)",
+    )
+    "opencode" -> listOf(
+      "oc/auto" to "OpenCode Free (Auto)",
+    )
+    "freebuff" -> listOf(
+      "fb/auto" to "Freebuff (Auto)",
+    )
+    "gemini" -> listOf(
+      "gemini/gemini-2.0-flash" to "Gemini 2.0 Flash",
+    )
+    "anthropic" -> listOf(
+      "anthropic/claude-3-5-sonnet-20241022" to "Claude 3.5 Sonnet",
+      "anthropic/claude-3-5-haiku-20241022" to "Claude 3.5 Haiku",
+    )
+    "qwen" -> listOf(
+      "qwen/qwen-max" to "Qwen Max",
+      "qwen/qwen-plus" to "Qwen Plus",
+      "qwen/qwen-turbo" to "Qwen Turbo",
+    )
+    "kimi" -> listOf(
+      "kimi/moonshot-v1-8k" to "Moonshot Kimi 8K",
+      "kimi/moonshot-v1-32k" to "Moonshot Kimi 32K",
+    )
+    "glm", "glm-cn" -> listOf(
+      "glm/glm-4-plus" to "GLM 4 Plus",
+      "glm/glm-4-flash" to "GLM 4 Flash (Free)",
+    )
+    "minimax", "minimax-cn" -> listOf(
+      "minimax/MiniMax-Text-01" to "MiniMax Text 01",
+    )
+    "mistral" -> listOf(
+      "mistral/mistral-large-latest" to "Mistral Large",
+      "mistral/mistral-small-latest" to "Mistral Small",
+      "mistral/codestral-latest" to "Codestral",
+    )
+    else -> {
+      val meta = find(providerId)
+      if (meta != null) listOf("${meta.alias}/default" to "${meta.id} (default)") else emptyList()
+    }
+  }
 }

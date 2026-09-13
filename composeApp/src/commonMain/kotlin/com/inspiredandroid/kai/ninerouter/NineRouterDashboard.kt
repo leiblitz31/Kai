@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -102,7 +103,7 @@ fun NineProviderMeta.getDisplayName(): String = when (id) {
     "poolside" -> "Poolside"
     "huggingface" -> "HuggingFace"
     "vertex", "vertex-partner" -> "Google Vertex AI"
-    else -> id.split("-").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
+    else -> if (displayName.isNotBlank()) displayName else id.split("-").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -125,6 +126,8 @@ fun NineRouterDashboard(
     // Ping status cache: connectionId -> NineValidationResult
     val pingResults = remember { mutableStateMapOf<String, NineValidationResult>() }
     val isPingingMap = remember { mutableStateMapOf<String, Boolean>() }
+
+    val allProviders = NineRouterRegistry.getAll(config)
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -170,7 +173,7 @@ fun NineRouterDashboard(
                             }
                         }
                         Text(
-                            text = "Universal AI Router • 142 Provider • Direct Upstream",
+                            text = "Universal AI Router • ${allProviders.size} Provider • Direct Upstream",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -211,7 +214,7 @@ fun NineRouterDashboard(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF3B82F6)))
-                            Text("🏢 $connectedProvidersCount / 142 Provider Aktif", style = MaterialTheme.typography.labelSmall)
+                            Text("🏢 $connectedProvidersCount / ${allProviders.size} Provider Aktif", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                     Surface(
@@ -285,6 +288,14 @@ fun NineRouterDashboard(
                             config = appSettings.getNineRouterConfig()
                         }
                     },
+                    onAddCustomProvider = { newMeta ->
+                        appSettings.addCustomProvider(newMeta)
+                        config = appSettings.getNineRouterConfig()
+                    },
+                    onRestoreAllProviders = {
+                        appSettings.restoreAllProviders()
+                        config = appSettings.getNineRouterConfig()
+                    },
                 )
             }
             1 -> {
@@ -323,7 +334,7 @@ fun NineRouterDashboard(
         }
     }
 
-    // Provider Detail Sheet (1:1 ConnectionsCard in 9Router)
+    // Provider Detail Sheet (1:1 ConnectionsCard + ModelsCard in 9Router)
     activeProviderDetail?.let { meta ->
         ModalBottomSheet(
             onDismissRequest = { activeProviderDetail = null },
@@ -382,6 +393,25 @@ fun NineRouterDashboard(
                     config = appSettings.getNineRouterConfig()
                     count
                 },
+                onDeleteProvider = { providerId ->
+                    appSettings.removeProvider(providerId)
+                    config = appSettings.getNineRouterConfig()
+                    activeProviderDetail = null
+                },
+                onAddModel = { customModel ->
+                    appSettings.addCustomModel(customModel)
+                    config = appSettings.getNineRouterConfig()
+                },
+                onDeleteModel = { modelId ->
+                    appSettings.removeModel(modelId)
+                    config = appSettings.getNineRouterConfig()
+                },
+                onRestoreModelsForProvider = {
+                    val defaultModels = NineRouterRegistry.getDefaultModelsForProvider(meta.id).map { it.first }
+                    val newDeleted = config.deletedModelIds.filterNot { it in defaultModels }.toSet()
+                    appSettings.setNineRouterConfig(config.copy(deletedModelIds = newDeleted))
+                    config = appSettings.getNineRouterConfig()
+                },
             )
         }
     }
@@ -392,10 +422,15 @@ private fun ProvidersSubTab(
     config: NineRouterConfig,
     onOpenProviderDetail: (NineProviderMeta) -> Unit,
     onQuickActivateOpenCode: () -> Unit,
+    onAddCustomProvider: (NineProviderMeta) -> Unit,
+    onRestoreAllProviders: () -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var onlyConnected by remember { mutableStateOf(false) }
+    var showAddProviderDialog by remember { mutableStateOf(false) }
+
+    val allProviders = NineRouterRegistry.getAll(config)
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // OpenCode Free Quick Banner (if not yet connected)
@@ -465,11 +500,11 @@ private fun ProvidersSubTab(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             val cats = listOf(
-                null to "Semua (142)",
-                "free" to "🆓 Free (6)",
-                "freeTier" to "⚡ Free Tier (19)",
-                "oauth" to "🔐 OAuth (20)",
-                "apikey" to "🔑 API Key (95)",
+                null to "Semua (${allProviders.size})",
+                "free" to "🆓 Free",
+                "freeTier" to "⚡ Free Tier",
+                "oauth" to "🔐 OAuth",
+                "apikey" to "🔑 API Key",
             )
             cats.forEach { (cat, label) ->
                 KaiChip(selected = (selectedCategory == cat), onClick = { selectedCategory = cat }) {
@@ -481,8 +516,42 @@ private fun ProvidersSubTab(
             }
         }
 
+        // Action Buttons Row: Add Custom Provider & Restore
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                onClick = { showAddProviderDialog = true },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text("+ Tambah Provider Kustom", style = MaterialTheme.typography.labelSmall)
+            }
+
+            if (config.deletedProviderIds.isNotEmpty()) {
+                TextButton(
+                    onClick = onRestoreAllProviders,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text("Pulihkan Provider (${config.deletedProviderIds.size})", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        // Add Custom Provider Form Card
+        if (showAddProviderDialog) {
+            AddCustomProviderCard(
+                onSave = { newMeta ->
+                    onAddCustomProvider(newMeta)
+                    showAddProviderDialog = false
+                },
+                onCancel = { showAddProviderDialog = false },
+            )
+        }
+
         // Filter providers
-        val filtered = NineRouterRegistry.all.filter { meta ->
+        val filtered = allProviders.filter { meta ->
             val matchQuery = searchQuery.isBlank() ||
                 meta.id.contains(searchQuery, ignoreCase = true) ||
                 meta.alias.contains(searchQuery, ignoreCase = true) ||
@@ -511,6 +580,125 @@ private fun ProvidersSubTab(
                     activeCount = activeConns.size,
                     onClick = { onOpenProviderDetail(meta) },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddCustomProviderCard(
+    onSave: (NineProviderMeta) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var idDraft by remember { mutableStateOf("") }
+    var nameDraft by remember { mutableStateOf("") }
+    var aliasDraft by remember { mutableStateOf("") }
+    var baseUrlDraft by remember { mutableStateOf("") }
+    var formatDraft by remember { mutableStateOf("openai") }
+    var categoryDraft by remember { mutableStateOf("apikey") }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = kaiAdaptiveCardColors(),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Tambah Provider Kustom Baru", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Hubungkan server OpenAI-compatible atau Claude-compatible sendiri (vLLM, Ollama VPS, Local Server, dll).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            OutlinedTextField(
+                value = idDraft,
+                onValueChange = { idDraft = it.lowercase().replace(" ", "-") },
+                label = { Text("Provider ID unik (mis: vllm-local, ollama-vps)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+            )
+
+            OutlinedTextField(
+                value = nameDraft,
+                onValueChange = { nameDraft = it },
+                label = { Text("Nama Tampilan (mis: Local vLLM Server)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+            )
+
+            OutlinedTextField(
+                value = aliasDraft,
+                onValueChange = { aliasDraft = it.lowercase().trim() },
+                label = { Text("Prefix Alias Model (mis: vllm, myllm)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+            )
+
+            OutlinedTextField(
+                value = baseUrlDraft,
+                onValueChange = { baseUrlDraft = it.trim() },
+                label = { Text("Base URL (mis: http://192.168.1.50:8000/v1/chat/completions)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+            )
+
+            Text("Format API:", style = MaterialTheme.typography.labelSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KaiChip(selected = (formatDraft == "openai"), onClick = { formatDraft = "openai" }) {
+                    Text("OpenAI-Compatible", style = MaterialTheme.typography.labelSmall)
+                }
+                KaiChip(selected = (formatDraft == "claude"), onClick = { formatDraft = "claude" }) {
+                    Text("Claude (Messages)", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            Text("Kategori:", style = MaterialTheme.typography.labelSmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("apikey" to "🔑 API Key", "free" to "🆓 Free", "freeTier" to "⚡ Free Tier", "oauth" to "🔐 OAuth").forEach { (cat, label) ->
+                    KaiChip(selected = (categoryDraft == cat), onClick = { categoryDraft = cat }) {
+                        Text(label, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = {
+                        val pid = idDraft.trim()
+                        val alias = if (aliasDraft.isNotBlank()) aliasDraft.trim() else pid
+                        if (pid.isNotBlank() && baseUrlDraft.isNotBlank()) {
+                            val newMeta = NineProviderMeta(
+                                id = pid,
+                                alias = alias,
+                                aliases = listOf(alias),
+                                baseUrl = baseUrlDraft.trim(),
+                                validateUrl = "",
+                                category = categoryDraft,
+                                needsAccountId = false,
+                                format = formatDraft,
+                                displayName = if (nameDraft.isNotBlank()) nameDraft.trim() else pid,
+                                isCustom = true,
+                            )
+                            onSave(newMeta)
+                        }
+                    },
+                    enabled = idDraft.isNotBlank() && baseUrlDraft.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Text("Simpan Provider")
+                }
+                OutlinedButton(onClick = onCancel, shape = RoundedCornerShape(10.dp)) {
+                    Text("Batal")
+                }
             }
         }
     }
@@ -602,6 +790,19 @@ private fun ProviderCardItem(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (meta.isCustom) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            ) {
+                                Text(
+                                    text = "Kustom",
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
 
                     Row(
@@ -666,6 +867,10 @@ private fun ProviderDetailSheetContent(
     onDeleteConnection: (String) -> Unit,
     onPingConnection: (NineConnection) -> Unit,
     onBulkImportForProvider: (String) -> Int,
+    onDeleteProvider: (String) -> Unit,
+    onAddModel: (NineCustomModel) -> Unit,
+    onDeleteModel: (String) -> Unit,
+    onRestoreModelsForProvider: () -> Unit,
 ) {
     var accountNameDraft by remember { mutableStateOf("") }
     var apiKeyDraft by remember { mutableStateOf("") }
@@ -675,11 +880,19 @@ private fun ProviderDetailSheetContent(
     var refreshTokenDraft by remember { mutableStateOf("") }
     var bulkText by remember { mutableStateOf("") }
     var importMessage by remember { mutableStateOf<String?>(null) }
-    var detailTab by remember { mutableStateOf(0) } // 0 = Akun, 1 = Tambah, 2 = Bulk
+    var detailTab by remember { mutableStateOf(0) } // 0 = Akun, 1 = Tambah, 2 = Bulk, 3 = Models
 
     val connections = config.connections.filter { it.provider.equals(meta.id, ignoreCase = true) }
     val isOAuth = meta.category.equals("oauth", ignoreCase = true)
     val isNoAuth = meta.id == "opencode"
+
+    // Models for this provider
+    val defaultModels = NineRouterRegistry.getDefaultModelsForProvider(meta.id)
+    val customModelsForProv = config.customModels.filter { it.provider.equals(meta.id, ignoreCase = true) }
+    val activeModelItems = (defaultModels.map { (id, name) -> id to name } +
+        customModelsForProv.map { it.id to (if (it.name.isNotBlank()) it.name else "${meta.alias} kustom") })
+        .filterNot { it.first in config.deletedModelIds }
+        .distinctBy { it.first }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
@@ -692,11 +905,29 @@ private fun ProviderDetailSheetContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text(
-                    text = meta.getDisplayName(),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = meta.getDisplayName(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    if (meta.isCustom) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        ) {
+                            Text(
+                                text = "Kustom",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = "Prefix Model: ${meta.alias}/ • Kategori: ${meta.category}",
                     style = MaterialTheme.typography.bodySmall,
@@ -705,19 +936,22 @@ private fun ProviderDetailSheetContent(
             }
         }
 
-        // Subtabs
+        // Subtabs: 0 = Akun, 1 = Tambah Akun, 2 = Bulk Import, 3 = Models
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             KaiChip(selected = (detailTab == 0), onClick = { detailTab = 0 }) {
                 Text("Akun (${connections.size})", style = MaterialTheme.typography.labelSmall)
             }
             KaiChip(selected = (detailTab == 1), onClick = { detailTab = 1 }) {
-                Text("+ Tambah Akun", style = MaterialTheme.typography.labelSmall)
+                Text("+ Akun", style = MaterialTheme.typography.labelSmall)
             }
             KaiChip(selected = (detailTab == 2), onClick = { detailTab = 2 }) {
-                Text("📋 Bulk Import", style = MaterialTheme.typography.labelSmall)
+                Text("📋 Import", style = MaterialTheme.typography.labelSmall)
+            }
+            KaiChip(selected = (detailTab == 3), onClick = { detailTab = 3 }) {
+                Text("🤖 Models (${activeModelItems.size})", style = MaterialTheme.typography.labelSmall)
             }
         }
 
@@ -729,7 +963,7 @@ private fun ProviderDetailSheetContent(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "Belum ada akun tersimpan untuk provider ini. Pilih '+ Tambah Akun' atau 'Bulk Import'.",
+                            text = "Belum ada akun tersimpan untuk provider ini. Pilih '+ Akun' atau 'Import'.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1001,6 +1235,191 @@ private fun ProviderDetailSheetContent(
                         Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     }
                 }
+            }
+
+            3 -> {
+                // Models Tab (1:1 ModelsCard in 9Router)
+                var newModelIdDraft by remember { mutableStateOf("") }
+                var newModelNameDraft by remember { mutableStateOf("") }
+                var modelNotice by remember { mutableStateOf<String?>(null) }
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Model aktif untuk ${meta.getDisplayName()}:",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        val deletedForProv = config.deletedModelIds.filter { dId ->
+                            defaultModels.any { it.first == dId }
+                        }
+                        if (deletedForProv.isNotEmpty()) {
+                            TextButton(
+                                onClick = onRestoreModelsForProvider,
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text("Pulihkan Bawaan (${deletedForProv.size})", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+
+                    if (activeModelItems.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Belum ada model aktif. Tambahkan model di bawah.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            activeModelItems.forEach { (mId, mName) ->
+                                val isCustom = customModelsForProv.any { it.id == mId }
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = mName,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                )
+                                                if (isCustom) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                    ) {
+                                                        Text(
+                                                            text = "Kustom",
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Text(
+                                                text = mId,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { onDeleteModel(mId) },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        ) {
+                                            Text("Hapus", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Form Add Model
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = kaiAdaptiveCardColors(),
+                        border = kaiAdaptiveCardBorder(),
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Tambah Model Baru",
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            OutlinedTextField(
+                                value = newModelIdDraft,
+                                onValueChange = { newModelIdDraft = it.trim() },
+                                label = { Text("Model ID (mis: deepseek-reasoner, gpt-4.5-preview)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            OutlinedTextField(
+                                value = newModelNameDraft,
+                                onValueChange = { newModelNameDraft = it },
+                                label = { Text("Nama Tampilan Model (opsional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            Button(
+                                onClick = {
+                                    val mId = newModelIdDraft.trim()
+                                    if (mId.isNotBlank()) {
+                                        val fullId = if (!mId.contains("/") && !mId.startsWith("@")) {
+                                            "${meta.alias}/$mId"
+                                        } else {
+                                            mId
+                                        }
+                                        onAddModel(NineCustomModel(id = fullId, provider = meta.id, name = newModelNameDraft.trim()))
+                                        modelNotice = "✓ Model $fullId berhasil ditambahkan!"
+                                        newModelIdDraft = ""
+                                        newModelNameDraft = ""
+                                    }
+                                },
+                                enabled = newModelIdDraft.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text("+ Simpan Model ke ${meta.alias}/")
+                            }
+
+                            modelNotice?.let {
+                                Text(it, color = Color(0xFF10B981), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Delete Provider Action at bottom
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (meta.isCustom) "Provider Kustom" else "Provider Bawaan",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                onClick = { onDeleteProvider(meta.id) },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(if (meta.isCustom) "🗑️ Hapus Provider" else "🗑️ Sembunyikan Provider", style = MaterialTheme.typography.labelSmall)
             }
         }
 
@@ -1339,7 +1758,7 @@ private fun BackupImportSubTab(
             colors = kaiAdaptiveCardColors(),
             border = kaiAdaptiveCardBorder(),
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("📤 Export Backup 9Router", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Ekspor seluruh akun, combo, dan konfigurasi token saver ke format JSON resmi 9Router. File hasil ekspor kompatibel 100% dengan dashboard web 9Router.",
