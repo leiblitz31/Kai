@@ -1,11 +1,13 @@
 package com.inspiredandroid.kai.ninerouter
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,10 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -45,18 +50,60 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inspiredandroid.kai.data.AppSettings
-import androidx.compose.material3.Checkbox
 import com.inspiredandroid.kai.saveFileToDevice
-import com.inspiredandroid.kai.ui.rememberCopyToClipboard
-import io.github.vinceglb.filekit.dialogs.FileKitType
-import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
-import io.github.vinceglb.filekit.readBytes
 import com.inspiredandroid.kai.ui.components.KaiChip
 import com.inspiredandroid.kai.ui.handCursor
 import com.inspiredandroid.kai.ui.kaiAdaptiveCardBorder
 import com.inspiredandroid.kai.ui.kaiAdaptiveCardColors
+import com.inspiredandroid.kai.ui.rememberCopyToClipboard
+import io.github.vinceglb.filekit.dialogs.FileKitType
+import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
+import io.github.vinceglb.filekit.readBytes
 import kotlin.time.Clock
 import kotlinx.coroutines.launch
+
+fun NineProviderMeta.getDisplayName(): String = when (id) {
+    "cloudflare-ai" -> "Cloudflare Workers AI"
+    "openai" -> "OpenAI"
+    "deepseek" -> "DeepSeek"
+    "anthropic" -> "Anthropic"
+    "gemini" -> "Google Gemini"
+    "groq" -> "Groq"
+    "github" -> "GitHub Copilot"
+    "kiro" -> "Kiro AI"
+    "freebuff" -> "Freebuff"
+    "opencode" -> "OpenCode Free"
+    "antigravity" -> "Google Antigravity"
+    "codex" -> "OpenAI Codex"
+    "qwen" -> "Qwen Code"
+    "openrouter" -> "OpenRouter"
+    "mistral" -> "Mistral AI"
+    "kimi" -> "Moonshot Kimi"
+    "glm", "glm-cn" -> "Zhipu GLM"
+    "minimax", "minimax-cn" -> "MiniMax"
+    "nvidia" -> "NVIDIA NIM"
+    "together" -> "Together AI"
+    "cerebras" -> "Cerebras"
+    "cohere" -> "Cohere"
+    "perplexity", "perplexity-web" -> "Perplexity"
+    "chutes" -> "Chutes AI"
+    "sambanova" -> "SambaNova"
+    "siliconflow" -> "SiliconFlow"
+    "voyage-ai" -> "Voyage AI"
+    "fireworks" -> "Fireworks AI"
+    "deepinfra" -> "DeepInfra"
+    "ollama", "ollama-local" -> "Ollama"
+    "cursor" -> "Cursor IDE"
+    "trae" -> "Trae IDE"
+    "windsurf" -> "Windsurf IDE"
+    "xai", "grok-cli", "grok-web" -> "xAI Grok"
+    "kilocode" -> "Kilocode"
+    "kimchi" -> "Kimchi AI"
+    "poolside" -> "Poolside"
+    "huggingface" -> "HuggingFace"
+    "vertex", "vertex-partner" -> "Google Vertex AI"
+    else -> id.split("-").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,7 +115,7 @@ fun NineRouterDashboard(
     var config by remember { mutableStateOf(appSettings.getNineRouterConfig()) }
     LaunchedEffect(Unit) { config = appSettings.getNineRouterConfig() }
 
-    // Dashboard Sub-tabs: 0 = Providers, 1 = Combos, 2 = Token Saver, 3 = Bulk Import
+    // Dashboard Sub-tabs: 0 = Providers, 1 = Combos, 2 = Token Saver, 3 = Backup & Import
     var activeSubTab by remember { mutableStateOf(0) }
 
     // Selected provider for detail bottom sheet
@@ -83,15 +130,16 @@ fun NineRouterDashboard(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // Top Dashboard Header
+        // Top 9Router Header Card
         Card(
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
             colors = kaiAdaptiveCardColors(),
             border = kaiAdaptiveCardBorder(),
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -99,13 +147,30 @@ fun NineRouterDashboard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "9Router",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            ) {
+                                Text(
+                                    text = "v4.0.0 Native",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
                         Text(
-                            text = "9Router Engine",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = "Universal AI Router • 142 Provider • Pool & Direct Upstream",
+                            text = "Universal AI Router • 142 Provider • Direct Upstream",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -113,29 +178,77 @@ fun NineRouterDashboard(
                 }
 
                 // Stats summary pills
-                val connectedCount = config.connections.filter { it.enabled && it.apiKey.isNotBlank() || it.accessToken.isNotBlank() || it.provider == "opencode" }.map { it.provider }.distinct().size
+                val connectedProvidersCount = config.connections
+                    .filter { it.enabled && (it.apiKey.isNotBlank() || it.accessToken.isNotBlank() || it.provider == "opencode") }
+                    .map { it.provider }
+                    .distinct()
+                    .size
+
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    KaiChip(selected = false) {
-                        Text("👥 ${config.connections.size} Akun Terhubung", style = MaterialTheme.typography.labelSmall)
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF10B981)))
+                            Text("👥 ${config.connections.size} Akun Terhubung", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
-                    KaiChip(selected = false) {
-                        Text("🏢 $connectedCount / 142 Provider Aktif", style = MaterialTheme.typography.labelSmall)
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF3B82F6)))
+                            Text("🏢 $connectedProvidersCount / 142 Provider Aktif", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
-                    KaiChip(selected = false) {
-                        Text("🔀 ${config.combos.size} Combo", style = MaterialTheme.typography.labelSmall)
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF8B5CF6)))
+                            Text("🔀 ${config.combos.size} Combo", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
-                    KaiChip(selected = false) {
-                        Text("⚡ RTK: ${if (config.rtkEnabled) "Aktif" else "Off"}", style = MaterialTheme.typography.labelSmall)
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val rtkDot = if (config.rtkEnabled) Color(0xFF10B981) else Color.Gray
+                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(rtkDot))
+                            Text("⚡ RTK: ${if (config.rtkEnabled) "ON" else "OFF"}", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
 
-                // Navigation Tabs
+                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // Segmented Navigation Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     KaiChip(selected = (activeSubTab == 0), onClick = { activeSubTab = 0 }) {
                         Text("🏢 Providers", style = MaterialTheme.typography.labelMedium)
@@ -153,7 +266,7 @@ fun NineRouterDashboard(
             }
         }
 
-        // Tab Content
+        // Subtab Content
         when (activeSubTab) {
             0 -> {
                 ProvidersSubTab(
@@ -165,7 +278,7 @@ fun NineRouterDashboard(
                             val ocConn = NineConnection(
                                 id = "conn_opencode_" + Clock.System.now().toEpochMilliseconds(),
                                 provider = "opencode",
-                                name = "OpenCode Free (No-Auth)",
+                                name = "OpenCode Free (Zero Auth)",
                                 apiKey = "",
                             )
                             appSettings.addOrUpdateNineConnection(ocConn)
@@ -210,7 +323,7 @@ fun NineRouterDashboard(
         }
     }
 
-    // Provider Detail Sheet
+    // Provider Detail Sheet (1:1 ConnectionsCard in 9Router)
     activeProviderDetail?.let { meta ->
         ModalBottomSheet(
             onDismissRequest = { activeProviderDetail = null },
@@ -285,25 +398,51 @@ private fun ProvidersSubTab(
     var onlyConnected by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // OpenCode Free Quick Banner (if not yet added)
+        // OpenCode Free Quick Banner (if not yet connected)
         val hasOpenCode = config.connections.any { it.provider == "opencode" && it.enabled }
-        if (!hasOpenCode) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                ),
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (hasOpenCode) Color(0xFF10B981).copy(alpha = 0.12f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+            ),
+            border = BorderStroke(1.dp, if (hasOpenCode) Color(0xFF10B981).copy(alpha = 0.3f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("🆓 OpenCode Free (Zero Auth)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                        Text("Akses gratis model AI tanpa perlu registrasi atau API key.", style = MaterialTheme.typography.bodySmall)
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("🆓 OpenCode Free", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (hasOpenCode) Color(0xFF10B981).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        ) {
+                            Text(
+                                text = if (hasOpenCode) "Aktif" else "Zero Auth",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (hasOpenCode) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
-                    Button(onClick = onQuickActivateOpenCode) {
+                    Text(
+                        text = if (hasOpenCode) "Model AI publik aktif tanpa auth. Siap dipakai langsung di chat." else "Akses model AI gratis tanpa perlu registrasi atau API key.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (!hasOpenCode) {
+                    Button(
+                        onClick = onQuickActivateOpenCode,
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    ) {
                         Text("Aktifkan 1-Tap", style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -317,6 +456,7 @@ private fun ProvidersSubTab(
             label = { Text("Cari provider atau alias (mis: cf, qwen, deepseek, groq)...") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
         )
 
         // Category filter chips
@@ -346,7 +486,8 @@ private fun ProvidersSubTab(
             val matchQuery = searchQuery.isBlank() ||
                 meta.id.contains(searchQuery, ignoreCase = true) ||
                 meta.alias.contains(searchQuery, ignoreCase = true) ||
-                meta.aliases.any { it.contains(searchQuery, ignoreCase = true) }
+                meta.aliases.any { it.contains(searchQuery, ignoreCase = true) } ||
+                meta.getDisplayName().contains(searchQuery, ignoreCase = true)
             val matchCat = selectedCategory == null || meta.category.equals(selectedCategory, ignoreCase = true)
             val conns = config.connections.filter { it.provider.equals(meta.id, ignoreCase = true) }
             val matchConnected = !onlyConnected || conns.isNotEmpty()
@@ -359,7 +500,7 @@ private fun ProvidersSubTab(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        // Provider cards list
+        // Provider cards list (1:1 9Router UI)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             filtered.forEach { meta ->
                 val conns = config.connections.filter { it.provider.equals(meta.id, ignoreCase = true) }
@@ -382,13 +523,31 @@ private fun ProviderCardItem(
     activeCount: Int,
     onClick: () -> Unit,
 ) {
+    val isConnected = connectionCount > 0
+    val cardColor = if (isConnected) {
+        MaterialTheme.colorScheme.surface
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLow
+    }
+    val borderColor = if (isConnected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+    }
+
     Card(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() }.handCursor(),
-        colors = kaiAdaptiveCardColors(),
-        border = kaiAdaptiveCardBorder(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .handCursor(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        border = BorderStroke(1.dp, borderColor),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -397,75 +556,100 @@ private fun ProviderCardItem(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Circle avatar with first 2 chars
-                val avatarColor = when (meta.category) {
-                    "free" -> Color(0xFF10B981)
-                    "freeTier" -> Color(0xFF3B82F6)
-                    "oauth" -> Color(0xFF8B5CF6)
-                    else -> MaterialTheme.colorScheme.primary
+                // Category avatar with distinct color branding
+                val (avatarBg, avatarText) = when (meta.category) {
+                    "free" -> Color(0xFF059669).copy(alpha = 0.15f) to Color(0xFF059669)
+                    "freeTier" -> Color(0xFF2563EB).copy(alpha = 0.15f) to Color(0xFF2563EB)
+                    "oauth" -> Color(0xFF7C3AED).copy(alpha = 0.15f) to Color(0xFF7C3AED)
+                    else -> Color(0xFFD97706).copy(alpha = 0.15f) to Color(0xFFD97706)
                 }
+
                 Box(
-                    modifier = Modifier.size(40.dp).clip(CircleShape).background(avatarColor.copy(alpha = 0.15f)),
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(avatarBg),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = meta.alias.take(2).uppercase(),
                         fontWeight = FontWeight.Bold,
-                        color = avatarColor,
-                        fontSize = 14.sp,
+                        color = avatarText,
+                        fontSize = 15.sp,
                     )
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = meta.id,
+                            text = meta.getDisplayName(),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            text = "${meta.alias}/",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        ) {
+                            Text(
+                                text = "${meta.alias}/",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
 
-                    // Category badge
-                    val catBadge = when (meta.category) {
-                        "free" -> "🆓 Free"
-                        "freeTier" -> "⚡ Free Tier"
-                        "oauth" -> "🔐 OAuth"
-                        else -> "🔑 API Key"
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val catLabel = when (meta.category) {
+                            "free" -> "🆓 Free"
+                            "freeTier" -> "⚡ Free Tier"
+                            "oauth" -> "🔐 OAuth"
+                            else -> "🔑 API Key"
+                        }
+                        Text(
+                            text = catLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = avatarText,
+                            fontWeight = FontWeight.Medium,
+                        )
+
+                        Text("•", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                        if (isConnected) {
+                            Text(
+                                text = "🟢 $activeCount Akun Aktif",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF059669),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        } else {
+                            Text(
+                                text = "Belum Terhubung",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
+                        }
                     }
-                    Text(catBadge, style = MaterialTheme.typography.labelSmall, color = avatarColor)
                 }
             }
 
-            // Status badge
-            if (connectionCount > 0) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF10B981).copy(alpha = 0.15f),
-                ) {
-                    Text(
-                        text = "🟢 $activeCount Akun",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF10B981),
-                        fontWeight = FontWeight.Medium,
-                    )
+            // Right Chevron
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                modifier = Modifier.size(28.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text("➔", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            } else {
-                Text(
-                    text = "Belum diisi",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                )
             }
         }
     }
@@ -499,7 +683,7 @@ private fun ProviderDetailSheetContent(
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         // Header
         Row(
@@ -509,12 +693,12 @@ private fun ProviderDetailSheetContent(
         ) {
             Column {
                 Text(
-                    text = meta.id,
+                    text = meta.getDisplayName(),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "Prefix: ${meta.alias}/ • Kategori: ${meta.category}",
+                    text = "Prefix Model: ${meta.alias}/ • Kategori: ${meta.category}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -530,7 +714,7 @@ private fun ProviderDetailSheetContent(
                 Text("Akun (${connections.size})", style = MaterialTheme.typography.labelSmall)
             }
             KaiChip(selected = (detailTab == 1), onClick = { detailTab = 1 }) {
-                Text("+ Tambah", style = MaterialTheme.typography.labelSmall)
+                Text("+ Tambah Akun", style = MaterialTheme.typography.labelSmall)
             }
             KaiChip(selected = (detailTab == 2), onClick = { detailTab = 2 }) {
                 Text("📋 Bulk Import", style = MaterialTheme.typography.labelSmall)
@@ -545,7 +729,7 @@ private fun ProviderDetailSheetContent(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "Belum ada akun tersimpan untuk provider ini. Pilih '+ Tambah' atau 'Bulk Import'.",
+                            text = "Belum ada akun tersimpan untuk provider ini. Pilih '+ Tambah Akun' atau 'Bulk Import'.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -558,29 +742,29 @@ private fun ProviderDetailSheetContent(
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                 ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
                             ) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            val dotColor = if (conn.enabled) Color(0xFF10B981) else Color.Gray
+                                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(dotColor))
                                             Text(
                                                 text = if (conn.name.isNotBlank()) conn.name else "Akun ${conn.id.takeLast(4)}",
                                                 fontWeight = FontWeight.SemiBold,
                                                 style = MaterialTheme.typography.bodyMedium,
-                                            )
-                                            val masked = if (conn.apiKey.length > 8) conn.apiKey.take(6) + "…" + conn.apiKey.takeLast(4) else "••••••••"
-                                            val accInfo = if (conn.accountId.isNotBlank()) " (Acc: ${conn.accountId.take(6)}…)" else ""
-                                            val relayInfo = if (conn.relayUrl.isNotBlank()) " • Relay aktif" else ""
-                                            Text(
-                                                text = "$masked$accInfo$relayInfo",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
 
@@ -591,17 +775,64 @@ private fun ProviderDetailSheetContent(
                                         )
                                     }
 
+                                    // Credentials pill
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        val masked = if (conn.apiKey.length > 8) conn.apiKey.take(6) + "…" + conn.apiKey.takeLast(4) else if (conn.accessToken.isNotBlank()) "Token ${conn.accessToken.take(6)}…" else "(no key)"
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                        ) {
+                                            Text(
+                                                text = masked,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        if (conn.accountId.isNotBlank()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            ) {
+                                                Text(
+                                                    text = "Acc: ${conn.accountId.take(6)}…",
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                        }
+                                        if (conn.relayUrl.isNotBlank()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFF3B82F6).copy(alpha = 0.15f),
+                                            ) {
+                                                Text(
+                                                    text = "Relay Aktif",
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color(0xFF3B82F6),
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
                                     // Action buttons: Test Ping & Delete
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        // Status badge
                                         if (isPinging) {
                                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                                 CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                                Text("Menguji...", style = MaterialTheme.typography.labelSmall)
+                                                Text("Menguji koneksi...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                             }
                                         } else if (pingRes != null) {
                                             val statusColor = if (pingRes.success) Color(0xFF10B981) else MaterialTheme.colorScheme.error
@@ -609,24 +840,28 @@ private fun ProviderDetailSheetContent(
                                                 text = pingRes.message,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = statusColor,
-                                                fontWeight = FontWeight.Medium,
+                                                fontWeight = FontWeight.SemiBold,
                                             )
                                         } else {
                                             Text(
-                                                text = if (conn.enabled) "Aktif di Pool" else "Dinonaktifkan",
+                                                text = if (conn.enabled) "● Siap di Pool" else "○ Dinonaktifkan",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = if (conn.enabled) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
 
                                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            OutlinedButton(
+                                            Button(
                                                 onClick = { onPingConnection(conn) },
                                                 enabled = !isPinging,
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                             ) {
-                                                Text("⚡ Test", style = MaterialTheme.typography.labelSmall)
+                                                Text("⚡ Test Ping", style = MaterialTheme.typography.labelSmall)
                                             }
-                                            OutlinedButton(onClick = { onDeleteConnection(conn.id) }) {
+                                            OutlinedButton(
+                                                onClick = { onDeleteConnection(conn.id) },
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            ) {
                                                 Text("Hapus", style = MaterialTheme.typography.labelSmall)
                                             }
                                         }
@@ -639,7 +874,7 @@ private fun ProviderDetailSheetContent(
             }
 
             1 -> {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (isOAuth) {
                         Text(
                             "Provider OAuth: login di browser perangkat lain lalu paste Access Token di bawah.",
@@ -653,6 +888,7 @@ private fun ProviderDetailSheetContent(
                         label = { Text("Label / Nama Akun (opsional)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
                     )
                     OutlinedTextField(
                         value = apiKeyDraft,
@@ -660,6 +896,7 @@ private fun ProviderDetailSheetContent(
                         label = { Text(if (isNoAuth) "API Key (opsional — kosongkan untuk no-auth)" else "API Key / Token") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
                     )
                     if (isOAuth) {
                         OutlinedTextField(
@@ -668,6 +905,7 @@ private fun ProviderDetailSheetContent(
                             label = { Text("Access Token") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
                         )
                         OutlinedTextField(
                             value = refreshTokenDraft,
@@ -675,6 +913,7 @@ private fun ProviderDetailSheetContent(
                             label = { Text("Refresh Token (opsional)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
                         )
                     }
                     if (meta.needsAccountId) {
@@ -684,6 +923,7 @@ private fun ProviderDetailSheetContent(
                             label = { Text("Account ID (Cloudflare 32-char)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
                         )
                     }
                     OutlinedTextField(
@@ -692,6 +932,7 @@ private fun ProviderDetailSheetContent(
                         label = { Text("Relay URL (opsional — bypass limit IP)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
                     )
 
                     Button(
@@ -719,14 +960,15 @@ private fun ProviderDetailSheetContent(
                         },
                         enabled = isNoAuth || apiKeyDraft.isNotBlank() || accessTokenDraft.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
                     ) {
-                        Text("Simpan Akun")
+                        Text("Simpan Akun ke Pool")
                     }
                 }
             }
 
             2 -> {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         if (meta.needsAccountId) "Format: name|accountId|apiKey (satu akun per baris)" else "Format: name|apiKey (satu akun per baris)",
                         style = MaterialTheme.typography.bodySmall,
@@ -739,6 +981,7 @@ private fun ProviderDetailSheetContent(
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 4,
                         maxLines = 8,
+                        shape = RoundedCornerShape(10.dp),
                     )
                     Button(
                         onClick = {
@@ -750,6 +993,7 @@ private fun ProviderDetailSheetContent(
                         },
                         enabled = bulkText.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
                     ) {
                         Text("Import Akun")
                     }
@@ -773,9 +1017,9 @@ private fun CombosSubTab(
     var nameDraft by remember { mutableStateOf("") }
     var modelsDraft by remember { mutableStateOf("") }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Rantai Fallback Multi-Model: Otomatis berpindah model saat kuota atau limit tercapai.",
+            "Rantai Fallback Multi-Model: Otomatis berpindah model saat kuota atau limit tercapai dalam satu sesi chat.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -803,15 +1047,16 @@ private fun CombosSubTab(
 
         // Active combos list
         if (config.combos.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 config.combos.forEach { combo ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
                         colors = kaiAdaptiveCardColors(),
                         border = kaiAdaptiveCardBorder(),
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(14.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -823,7 +1068,10 @@ private fun CombosSubTab(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            OutlinedButton(onClick = { onDeleteCombo(combo.id) }) {
+                            OutlinedButton(
+                                onClick = { onDeleteCombo(combo.id) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            ) {
                                 Text("Hapus", style = MaterialTheme.typography.labelSmall)
                             }
                         }
@@ -835,25 +1083,28 @@ private fun CombosSubTab(
         // Form add
         Card(
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
             colors = kaiAdaptiveCardColors(),
             border = kaiAdaptiveCardBorder(),
         ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Buat Combo Baru", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Buat Combo Baru", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(
                     value = nameDraft,
                     onValueChange = { nameDraft = it },
                     label = { Text("Nama Combo (mis: MyCodingStack)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
                 )
                 OutlinedTextField(
                     value = modelsDraft,
                     onValueChange = { modelsDraft = it },
-                    label = { Text("Model IDs (pisahkan koma/baris)") },
+                    label = { Text("Model IDs (pisahkan koma atau baris)") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 5,
+                    shape = RoundedCornerShape(10.dp),
                 )
                 Button(
                     onClick = {
@@ -866,6 +1117,7 @@ private fun CombosSubTab(
                     },
                     enabled = nameDraft.isNotBlank() && modelsDraft.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
                 ) {
                     Text("Simpan Combo")
                 }
@@ -879,7 +1131,7 @@ private fun TokenSaverSubTab(
     config: NineRouterConfig,
     onUpdateConfig: (NineRouterConfig) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             "Pipeline Token Saver 9Router: Hemat token input dan output tanpa merusak substansi jawaban. Semua kompresor fail-open.",
             style = MaterialTheme.typography.bodySmall,
@@ -889,11 +1141,12 @@ private fun TokenSaverSubTab(
         // RTK
         Card(
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
             colors = kaiAdaptiveCardColors(),
             border = kaiAdaptiveCardBorder(),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -911,11 +1164,12 @@ private fun TokenSaverSubTab(
         // Caveman
         Card(
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
             colors = kaiAdaptiveCardColors(),
             border = kaiAdaptiveCardBorder(),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -933,11 +1187,12 @@ private fun TokenSaverSubTab(
         // Ponytail
         Card(
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
             colors = kaiAdaptiveCardColors(),
             border = kaiAdaptiveCardBorder(),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -992,10 +1247,11 @@ private fun BackupImportSubTab(
         // Card 1: Import Backup
         Card(
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
             colors = kaiAdaptiveCardColors(),
             border = kaiAdaptiveCardBorder(),
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("📥 Import Config / Backup 9Router", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Impor file backup database 9Router (9router-backup-*.json) atau format baris panen. Mendukung file JSON backup resmi 9Router, format pool akun, dan combo.",
@@ -1003,17 +1259,12 @@ private fun BackupImportSubTab(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                Row(
+                Button(
+                    onClick = { filePickerLauncher.launch() },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    shape = RoundedCornerShape(10.dp),
                 ) {
-                    Button(
-                        onClick = { filePickerLauncher.launch() },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("📂 Pilih File Backup (.json / .txt)")
-                    }
+                    Text("📂 Pilih File Backup (.json / .txt)")
                 }
 
                 Row(
@@ -1032,6 +1283,8 @@ private fun BackupImportSubTab(
                     )
                 }
 
+                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
                 Text(
                     "Atau paste teks / JSON langsung di bawah ini:",
                     style = MaterialTheme.typography.labelSmall,
@@ -1045,6 +1298,7 @@ private fun BackupImportSubTab(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 4,
                     maxLines = 8,
+                    shape = RoundedCornerShape(10.dp),
                 )
 
                 Button(
@@ -1061,6 +1315,7 @@ private fun BackupImportSubTab(
                     },
                     enabled = rawText.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
                 ) {
                     Text("Import dari Teks / JSON")
                 }
@@ -1080,10 +1335,11 @@ private fun BackupImportSubTab(
         // Card 2: Export Backup
         Card(
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
             colors = kaiAdaptiveCardColors(),
             border = kaiAdaptiveCardBorder(),
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("📤 Export Backup 9Router", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Ekspor seluruh akun, combo, dan konfigurasi token saver ke format JSON resmi 9Router. File hasil ekspor kompatibel 100% dengan dashboard web 9Router.",
@@ -1116,6 +1372,7 @@ private fun BackupImportSubTab(
                             }
                         },
                         modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
                     ) {
                         Text("Simpan File Backup (.json)")
                     }
@@ -1125,6 +1382,7 @@ private fun BackupImportSubTab(
                             copyToClipboard(jsonString)
                             exportNotice = "✓ JSON berhasil disalin ke clipboard!"
                         },
+                        shape = RoundedCornerShape(10.dp),
                     ) {
                         Text("Salin JSON")
                     }
